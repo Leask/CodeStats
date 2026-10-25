@@ -1,0 +1,37 @@
+{
+    "name": "codestats",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "One resilient GitHub and WakaTime profile card on Cloudflare Workers.",
+    "scripts": {
+        "dev": "wrangler dev --ip 127.0.0.1 --port 8791",
+        "check": "tsc --noEmit",
+        "test": "vitest run",
+        "build": "wrangler deploy --dry-run --outdir dist",
+        "deploy": "wrangler deploy",
+        "test:runtime": "node scripts/cache-runtime-check.mjs",
+        "test:preview": "node scripts/preview-check.mjs"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^5.20261025.1",
+        "@playwright/test": "^1.64.1",
+        "@types/node": "^26.6.5",
+        "esbuild": "^0.28.2",
+        "miniflare": "^5.20261019.2-beta",
+        "typescript": "^7.0.2",
+        "vitest": "^5.0.5",
+        "wrangler": "^4.152.0"
+    },
+    "overrides": {
+        "undici": "7.30.1"
+    },
+    "allowScripts": {
+        "esbuild@0.28.2": true,
+        "workerd@1.20261019.1": true,
+        "fsevents@2.3.3": true
+    },
+    "engines": {
+        "node": ">=22"
+    }
+}

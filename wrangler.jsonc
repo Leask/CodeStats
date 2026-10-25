@@ -1,0 +1,19 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "codestats",
+    "main": "src/index.ts",
+    "compatibility_date": "2026-10-25",
+    "workers_dev": true,
+    "preview_urls": false,
+    "vars": {
+        "GITHUB_USERNAME": "Leask",
+        "WAKATIME_USERNAME": "leask",
+        "DEFAULT_RANGE": "all_time",
+        "FRESH_SECONDS": "21600",
+        "RETRY_SECONDS": "900"
+    },
+    "durable_objects": {
+        "bindings": [{ "name": "SNAPSHOTS", "class_name": "SnapshotStore" }]
+    },
+    "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SnapshotStore"] }]
+}
