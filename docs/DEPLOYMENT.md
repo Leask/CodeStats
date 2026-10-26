@@ -178,6 +178,13 @@ Keep usernames and public options in `wrangler.jsonc`; never put real tokens in
 that file or the deploy command. Leave the repository's bundle settings intact;
 do not add `--minify` to the dashboard command.
 
+The repository sets `keep_vars: true` so future Wrangler deployments preserve
+variables added in the dashboard. Plain runtime Variables and Secrets are both
+read through `env`; Secrets keep credential values hidden. After adding a
+previously missing GitHub token, the next request immediately retries that
+specific cached configuration error. Ordinary API/rate-limit failures retain
+their normal cooldown, and successful WakaTime data is left unchanged.
+
 ## Settings
 
 Examples deliberately use username/token placeholders. Set both account IDs

@@ -21,6 +21,7 @@ interface Policy {
     githubKey?: string;
     githubActivityKey?: string;
     githubActivityCollectionVersion?: number;
+    retryConfigurationErrors?: string[];
 }
 
 type WaitUntil = (promise: Promise<unknown>) => void;
@@ -143,7 +144,10 @@ export class SnapshotCache {
             return running as Promise<SourceSnapshot<T>>;
         }
         const retryDue = current.retryAt === null
-            || Date.parse(current.retryAt) <= this.now();
+            || Date.parse(current.retryAt) <= this.now()
+            // A newly supplied setting can resolve a cached configuration error.
+            || (current.lastError !== null
+                && this.policy.retryConfigurationErrors?.includes(current.lastError) === true);
         if (current.status === 'fresh' || !retryDue) {
             return current;
         }

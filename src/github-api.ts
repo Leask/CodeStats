@@ -1,4 +1,4 @@
-import { UpstreamError } from './errors';
+import { MISSING_GITHUB_TOKEN, UpstreamError } from './errors';
 import type { Env, Fetcher } from './types';
 
 export type JsonObject = Record<string, unknown>;
@@ -60,7 +60,7 @@ export function createGitHubClient(
         throw new UpstreamError('GitHub username is invalid.');
     }
     if (!env.GITHUB_TOKEN?.trim()) {
-        throw new UpstreamError('Configure a server-side GITHUB_TOKEN for GitHub stats.');
+        throw new UpstreamError(MISSING_GITHUB_TOKEN);
     }
     const signal = AbortSignal.timeout(options.timeoutMs ?? 20_000);
     let requests = 0;

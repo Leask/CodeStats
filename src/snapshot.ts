@@ -4,6 +4,7 @@ import { fetchGitHub } from './github';
 import { repositoryOptions } from './github-options';
 import { fetchGitHubActivity } from './github-activity';
 import { fetchWakaTime } from './wakatime';
+import { MISSING_GITHUB_TOKEN } from './errors';
 import type { Fetcher, Settings } from './types';
 
 function seconds(value: string, fallback: number, minimum: number): number {
@@ -40,5 +41,8 @@ export function createProfileCache(
         githubActivityKey: `github:activity:${env.GITHUB_VISIBILITY ?? 'public'}:v3:`
             + (env.GITHUB_INCLUDE_OWN_CONTRIBUTIONS ?? 'true'),
         githubActivityCollectionVersion: 3,
+        // Credential presence only; never store, hash or expose its value.
+        retryConfigurationErrors: env.GITHUB_TOKEN?.trim()
+            ? [MISSING_GITHUB_TOKEN] : [],
     });
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve dashboard Variables on deploy, retry a formerly missing GitHub token
+  immediately once configured, and group Makefile with C/C++ and Awk with Shell.
 - Serve the transparent README SVG directly at `/` and `/card.svg`; move the
   interactive card builder to `/build` and `/build/`.
 - Generate one compact linked Markdown image by default, omitting default URL

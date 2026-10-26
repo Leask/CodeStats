@@ -164,6 +164,21 @@ describe('language comparison', () => {
         expect(JSON.stringify(data)).toBe(before);
     });
 
+    it('groups Makefile with C/C++ and Awk with Shell before ranking', () => {
+        const data = rankedSnapshot(
+            ['Makefile', 'C', 'AWK', 'Bash'],
+            ['Makefile', 'C++', 'Awk', 'Shell'],
+        );
+        data.wakatime.data!.totalSeconds = 1000;
+        const before = JSON.stringify(data);
+        const rows = joinLanguages(data);
+        expect(rows.map(row => [row.name, row.seconds, row.codeBytes]))
+            .toEqual([['C/C++', 700, 700], ['Shell', 300, 300]]);
+        expect(rows.reduce((sum, row) => sum + row.timePercent, 0)).toBe(100);
+        expect(rows.reduce((sum, row) => sum + row.codePercent!, 0)).toBe(100);
+        expect(JSON.stringify(data)).toBe(before);
+    });
+
     it('selects nine named leaders without Other, then sorts by time and sums the tail', () => {
         const data = rankedSnapshot(
             ['A', 'B', 'LangC', 'D', 'E', 'F'],

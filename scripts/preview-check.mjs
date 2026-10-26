@@ -54,7 +54,7 @@ try {
     checks.groupedTimeSum = js[1] === hours + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
     const c = displayed.find(row => row[0] === 'C/C++');
     const bytes = expected.github.data.languages
-        .filter(row => ['c', 'c++', 'cpp'].includes(row.name.toLowerCase()))
+        .filter(row => ['c', 'c++', 'cpp', 'makefile'].includes(row.name.toLowerCase()))
         .reduce((sum, row) => sum + row.bytes, 0);
     checks.groupedCodeShare = c[3]
         === (100 * bytes / expected.github.data.totalBytes).toFixed(2) + '%';

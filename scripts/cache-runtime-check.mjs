@@ -33,6 +33,8 @@ const outboundService = async request => {
         });
     }
     if (url.hostname === 'api.wakatime.com') {
+        assert.equal(request.headers.get('authorization'),
+            'Bearer isolated-waka-fixture-not-a-secret');
         return Response.json({ data: {
             total_seconds_including_other_language: 100,
             daily_average_including_other_language: 10,
@@ -45,6 +47,8 @@ const outboundService = async request => {
             ],
         } });
     }
+    assert.equal(request.headers.get('authorization'),
+        'Bearer isolated-test-token-not-a-secret');
     if (url.pathname.startsWith('/search/')) {
         return githubResponse({ total_count: 12, incomplete_results: false });
     }
@@ -107,7 +111,7 @@ const outboundService = async request => {
         }],
     } } } });
 };
-const create = (login = 'test') => new Miniflare({
+const create = (login = 'test', githubConfigured = true) => new Miniflare({
     ...convertV4MiniflareOptions({
         name: 'codestats-runtime-test',
         rootPath: directory,
@@ -116,7 +120,9 @@ const create = (login = 'test') => new Miniflare({
         outboundService,
         bindings: {
             GITHUB_USERNAME: login, WAKATIME_USERNAME: 'test',
-            GITHUB_TOKEN: 'isolated-test-token-not-a-secret',
+            ...(githubConfigured
+                ? { GITHUB_TOKEN: 'isolated-test-token-not-a-secret' } : {}),
+            WAKATIME_TOKEN: 'isolated-waka-fixture-not-a-secret',
             GITHUB_VISIBILITY: 'all',
             DEFAULT_RANGE: 'all_time', FRESH_SECONDS: '60', RETRY_SECONDS: '900',
         },
@@ -125,9 +131,18 @@ const create = (login = 'test') => new Miniflare({
 });
 const stats = async mf => (await mf.dispatchFetch('https://test.invalid/api/stats')).json();
 const checks = {};
-let mf = create();
+let mf = create('test', false);
 try {
+    const missing = await stats(mf);
+    checks.missingTokenCooldown = missing.github.data === null
+        && missing.github.lastError.includes('Configure a server-side GITHUB_TOKEN')
+        && Date.parse(missing.github.retryAt) > Date.now();
+    await mf.dispose();
+    mf = create();
     const first = await stats(mf);
+    checks.configuredBindingsRecoverImmediately = first.github.status === 'fresh'
+        && first.githubActivity.status === 'fresh'
+        && first.wakatime.lastSuccessAt === missing.wakatime.lastSuccessAt;
     checks.realWorkerdFresh = first.github.status === 'fresh'
         && first.wakatime.status === 'fresh'
         && first.githubActivity.status === 'fresh';

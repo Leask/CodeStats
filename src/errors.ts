@@ -1,3 +1,6 @@
+export const MISSING_GITHUB_TOKEN =
+    'Configure a server-side GITHUB_TOKEN for GitHub stats.';
+
 /** A controlled upstream message safe for public source-status output. */
 export class UpstreamError extends Error {
     constructor(message: string, readonly retryAfterSeconds?: number) {

@@ -42,7 +42,7 @@ subset. Display sorting changes order, not which groups are selected.
 
 Related languages are grouped before selection:
 
-- C/C++: C, C++ and CPP.
+- C/C++: C, C++, CPP and Makefile.
 - JavaScript/TypeScript: JavaScript, TypeScript, JS/TS and JSX/TSX.
 - Markdown/Text: Markdown, Text, plain text, MDX and reStructuredText.
 - Python: Python, Cython, Jupyter Notebook and IPython.
@@ -53,7 +53,7 @@ Related languages are grouped before selection:
   styles including CSS, SCSS, Sass, Less, Stylus and PostCSS.
   JavaScript/TypeScript stays separate because it also covers server-side code.
 - Shaders: GLSL, HLSL, Metal, ShaderLab, WGSL and Cg.
-- Shell: Shell, Bash, Zsh, Sh, Fish, Ksh and Dash.
+- Shell: Shell, Bash, Zsh, Sh, Fish, Ksh, Dash and Awk.
 - Objective-C: Objective-C and Objective-C++.
 - SQL: SQL, MySQL, PLpgSQL, PLSQL, TSQL/Transact-SQL and SQLPL.
 - Other explicit aliases include VimL/Vim Script, Perl6/Raku,

@@ -286,6 +286,33 @@ describe('Node runtime and persistent snapshots', () => {
         expect(value.wakatime.data).toBeNull();
     });
 
+    it('retries a missing-token error once configured without clearing WakaTime', async () => {
+        const path = directory();
+        const source = upstream();
+        const first = service(path, source.fetcher,
+            { ...settings, GITHUB_TOKEN: undefined });
+        const missing = await stats(await first.listen(0));
+        expect(missing.github.lastError).toContain('Configure a server-side GITHUB_TOKEN');
+        expect(Date.parse(missing.github.retryAt!)).toBeGreaterThan(Date.now());
+        await first.close();
+
+        const stillMissing = service(path, source.fetcher,
+            { ...settings, GITHUB_TOKEN: undefined });
+        const calls = source.calls();
+        expect((await stats(await stillMissing.listen(0))).github.retryAt)
+            .toBe(missing.github.retryAt);
+        expect(source.calls()).toBe(calls);
+        await stillMissing.close();
+
+        const configured = service(path, source.fetcher);
+        const recovered = await stats(await configured.listen(0));
+        expect(recovered.github.status).toBe('fresh');
+        expect(recovered.githubActivity?.status).toBe('fresh');
+        expect(recovered.github.lastError).toBeNull();
+        expect(recovered.wakatime).toEqual(missing.wakatime);
+        expect(JSON.stringify(recovered)).not.toContain(settings.GITHUB_TOKEN);
+    });
+
     it('keeps the runtime defaults and validates visibility without logging keys', () => {
         expect(settingsFromEnvironment({})).toMatchObject({
             GITHUB_USERNAME: 'Leask', GITHUB_VISIBILITY: 'all',
