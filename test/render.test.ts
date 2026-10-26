@@ -388,7 +388,10 @@ describe('safe README SVG', () => {
             expect(hidden).not.toContain('data-profile-header');
             expect(hidden).not.toContain('data-profile-name');
             expect(hidden).not.toContain('data-profile-description');
-            expect(hidden).not.toContain('data-profile-rank');
+            expect(hidden).toContain('data-profile-rank');
+            expect(hidden).toContain('data-rank-icon="true"');
+            expect(hidden.indexOf('data-profile-rank'))
+                .toBeLessThan(hidden.indexOf('data-refresh-times'));
             expect(hidden.match(/data-summary-metric=/g)).toHaveLength(8);
             expect(hidden).toContain('data-refresh-times="true"');
             expect(hidden).toContain('data-project-credit="true"');
@@ -402,6 +405,7 @@ describe('safe README SVG', () => {
         const svg = renderCard(snapshot(), options);
         expect(svg).toContain('GitHub: 1 hr, 0 mins ago | WakaTime: 1 hr, 30 mins ago');
         expect(svg).toContain('data-refresh-times="true"');
+        expect(svg).not.toContain('data-profile-rank');
         expect(svg).toContain('data-project-credit="true" href="https://github.com/Leask/CodeStats"');
         expect(svg).toContain('>Power by github.com/Leask/<tspan');
         expect(svg).toContain('font-weight="650">CodeStats</tspan>');
@@ -663,7 +667,7 @@ describe('GitHub personal activity', () => {
         expect(svg.match(/data-summary-icon="/g)).toHaveLength(8);
     });
 
-    it('renders the avatar and three profile lines with bio taking precedence', () => {
+    it('renders two profile lines and keeps the rank in the footer', () => {
         const data = activitySnapshot();
         Object.assign(data.github.data!, {
             name: 'Full Name', bio: 'Builds <tools>', profileStatus: 'Fallback status',
@@ -677,10 +681,15 @@ describe('GitHub personal activity', () => {
         expect(svg).toContain('Builds &lt;tools&gt;');
         expect(svg).not.toContain('Fallback status');
         expect(svg).toContain('Top 14.39% · A');
+        expect(svg.match(/data-profile-rank=/g)).toHaveLength(1);
+        expect(svg.indexOf('data-profile-rank'))
+            .toBeGreaterThan(svg.indexOf('data-summary-metric'));
         data.github.data!.bio = ' ';
         expect(renderCard(data, options)).toContain('Fallback status');
         data.github.data!.profileStatus = null;
-        expect(renderCard(data, options)).toContain('y="87" font-size="12" fill="#97a8ba" ></text>');
+        expect(renderCard(data, options)).toMatch(
+            /data-profile-description="true"><title><\/title><text[^>]*><\/text>/,
+        );
         data.github.data!.avatarDataUri = 'https://example.com/avatar.png';
         expect(renderCard(data, options)).not.toContain('<image');
     });

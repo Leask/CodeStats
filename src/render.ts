@@ -6,7 +6,7 @@ import type {
     StatsSnapshot,
 } from './types';
 import { LANGUAGE_ICONS, languageIcon } from './language-icons';
-import { CLOCK_ICON, GITHUB_ICON, METRIC_ICONS } from './ui-icons';
+import { CLOCK_ICON, GITHUB_ICON, METRIC_ICONS, TROPHY_ICON } from './ui-icons';
 import { profileRank } from './rank';
 
 const ALIASES: Record<string, string> = {
@@ -651,18 +651,27 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             : `<circle cx="66" cy="78" r="34" fill="${palette.panel}"/>`
                 + text(66, 89, username.slice(0, 1).toUpperCase(), 30,
                     palette.muted, 'text-anchor="middle"'))
-        + `<text data-profile-name="true" x="116" y="66" font-size="${nameSize.toFixed(2)}" `
+        + '<g data-profile-text="true">'
+        + `<text data-profile-name="true" x="116" y="${profileDescription ? 68 : 78}" `
+        + `dominant-baseline="central" font-size="${nameSize.toFixed(2)}" `
         + `fill="${palette.fg}" font-weight="650">${xml(fullName)}`
         + `<tspan dx="12" font-size="${(nameSize * 0.68).toFixed(2)}" `
         + `fill="${palette.muted}" font-weight="400">@${xml(username)}</tspan></text>`
         + '<g data-profile-description="true"><title>' + xml(profileDescription) + '</title>'
-        + text(116, 87, profileLine(profileDescription), 12, palette.muted) + '</g>'
-        + '<g data-profile-rank="true"><title>Estimated percentile from the '
+        + text(116, 78 + (nameSize + 8) / 2,
+            profileLine(profileDescription), 12, palette.muted,
+            'dominant-baseline="central"') + '</g></g></g>';
+    const footerRank = rank ? '<g data-profile-rank="true">'
+        + '<title>Estimated percentile from the '
         + 'GitHub Stats Extended weighted model: commits, PRs, issues, recent '
         + 'review contributions, owned stars and followers.</title>'
-        + (rank ? text(116, 108, 'Top '
+        + `<svg data-rank-icon="true" x="32" y="${footerY + 18}" `
+        + `width="14" height="14" viewBox="0 0 16 16" fill="${palette.time}" `
+        + `aria-hidden="true"><path d="${TROPHY_ICON}"/></svg>`
+        + text(52, footerY + 29, 'Top '
             + `${rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2)}% · ${rank.level}`,
-        12, palette.time) : '') + '</g></g>';
+        10, palette.time) + '</g>' : '';
+    const refreshX = rank ? 170 : 32;
     const metricMarkup = metrics.map((metric, index) => {
         const x = 32 + index % 4 * 211;
         const y = 166 - hiddenHeaderHeight
@@ -771,9 +780,10 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `<path d="M32 ${217 + contentOffset}H848" stroke="${palette.line}"/>`
         + `<g transform="translate(0 ${contentOffset})">${body}</g>`
         + `<path d="M32 ${footerY}H848" stroke="${palette.line}"/>`
-        + `<g data-refresh-times="true"><svg x="32" y="${footerY + 18}" width="14" height="14" `
+        + footerRank
+        + `<g data-refresh-times="true"><svg x="${refreshX}" y="${footerY + 18}" width="14" height="14" `
         + `viewBox="0 0 16 16" fill="${palette.muted}" aria-hidden="true"><path d="${CLOCK_ICON}"/></svg>`
-        + text(52, footerY + 29, `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)} | `
+        + text(refreshX + 20, footerY + 29, `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)} | `
             + `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`, 10, palette.muted)
         + '</g><a data-project-credit="true" href="https://github.com/Leask/CodeStats" '
         + 'target="_blank" rel="noopener noreferrer">'

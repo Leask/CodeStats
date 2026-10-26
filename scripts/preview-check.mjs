@@ -207,22 +207,21 @@ try {
                 const identity = header.querySelector('[data-profile-name]');
                 const handle = identity.querySelector('tspan');
                 const description = header.querySelector('[data-profile-description] text');
-                const rating = header.querySelector('[data-profile-rank] text');
                 const imageBox = avatar?.getBoundingClientRect();
                 const nameBox = identity.getBoundingClientRect();
-                const rankBox = rating?.getBoundingClientRect();
+                const bioBox = description.getBoundingClientRect();
+                const textCenter = (nameBox.top + bioBox.bottom) / 2;
+                const imageCenter = (imageBox.top + imageBox.bottom) / 2;
                 return !!avatar && /^data:image\//.test(avatar.getAttribute('href'))
                     && identity.textContent === name + '@' + username
                     && handle.getAttribute('fill') !== identity.getAttribute('fill')
                     && header.querySelector('[data-profile-description] title').textContent === bio
                     && bio.startsWith(description.textContent.replace(/…$/, ''))
-                    && rating.textContent === 'Top '
-                        + (rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2))
-                        + '% · ' + rank.level
+                    && !header.querySelector('[data-profile-rank]')
+                    && header.querySelectorAll('text').length === 2
                     && imageBox.right + 12 <= nameBox.left
-                    && nameBox.bottom < description.getBoundingClientRect().top
-                    && description.getBoundingClientRect().bottom < rankBox.top
-                    && rankBox.bottom <= imageBox.bottom;
+                    && nameBox.bottom < bioBox.top
+                    && Math.abs(textCenter - imageCenter) <= 2;
             }, { name: expected.github.data.name, username: expected.github.data.username,
                 bio: expected.github.data.bio || expected.github.data.profileStatus || '', rank });
             checks.twoSummaryRows &&= await svgPage.evaluate(() => {
@@ -255,14 +254,27 @@ try {
                     });
                 });
             }
-            checks.footerLayout &&= await svgPage.evaluate(() => {
-                const refresh = document.querySelector('[data-refresh-times] text')
+            checks.footerLayout &&= await svgPage.evaluate(rank => {
+                const ranking = document.querySelector('[data-profile-rank]');
+                const trophy = ranking.querySelector('[data-rank-icon]')
                     .getBoundingClientRect();
+                const rating = ranking.querySelector('text');
+                const ratingBox = rating.getBoundingClientRect();
+                const refresh = document.querySelector('[data-refresh-times]');
+                const clock = refresh.querySelector('svg').getBoundingClientRect();
+                const times = refresh.querySelector('text').getBoundingClientRect();
                 const credit = document.querySelector('[data-project-credit]');
                 const logo = credit.querySelector('svg').getBoundingClientRect();
                 const text = credit.querySelector('text').getBoundingClientRect();
-                return refresh.right + 16 <= logo.left && logo.right + 4 <= text.left;
-            });
+                return rating.textContent === 'Top '
+                    + (rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2))
+                    + '% · ' + rank.level
+                    && trophy.right + 4 <= ratingBox.left
+                    && ratingBox.right + 16 <= clock.left
+                    && clock.right + 4 <= times.left
+                    && times.right + 16 <= logo.left && logo.right + 4 <= text.left
+                    && Math.abs(ratingBox.bottom - times.bottom) < 2;
+            }, rank);
             const suffix = view === 'overview' ? theme : 'activity-' + theme;
             await svgPage.screenshot({ path: 'artifacts/card-' + suffix + '.png' });
         }
@@ -276,6 +288,9 @@ try {
             const bounds = root.getBoundingClientRect();
             const metrics = [...root.querySelectorAll('[data-summary-metric]')];
             return !root.querySelector('[data-profile-header]')
+                && !!root.querySelector('[data-profile-rank] [data-rank-icon]')
+                && root.querySelector('[data-profile-rank]').getBoundingClientRect().right
+                    < root.querySelector('[data-refresh-times]').getBoundingClientRect().left
                 && metrics.length === 8
                 && metrics[0].getBoundingClientRect().top < bounds.top + 30
                 && [...root.querySelectorAll('text')].every(node => {
