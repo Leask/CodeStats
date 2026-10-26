@@ -190,9 +190,9 @@ describe('language comparison', () => {
         const before = JSON.stringify(all);
         const rows = selectLanguages(all);
         expect(rows.map(row => row.name)).toEqual([
-            'A', 'B', 'LangC', 'D', 'E', 'U', 'V', 'W', 'X', 'Others',
+            'A', 'B', 'LangC', 'D', 'U', 'V', 'W', 'X', 'Y', 'Others',
         ]);
-        expect(rows[9]).toMatchObject({ seconds: 10100, codeBytes: 300 });
+        expect(rows[9]).toMatchObject({ seconds: 10300, codeBytes: 100 });
         expect(rows.reduce((sum, row) => sum + row.seconds, 0)).toBe(12100);
         expect(rows.reduce((sum, row) => sum + (row.codeBytes ?? 0), 0)).toBe(2100);
         expect(rows.reduce((sum, row) => sum + row.timePercent, 0)).toBeCloseTo(100);
@@ -254,11 +254,11 @@ describe('language comparison', () => {
         const before = JSON.stringify(data);
         const rows = joinLanguages(data);
         expect(rows.map(row => row.name)).toEqual([
-            'JavaScript/TypeScript', 'C/C++', 'Python', 'Markdown/Text',
+            'C/C++', 'JavaScript/TypeScript', 'Python', 'Markdown/Text',
         ]);
-        expect(rows[0]).toMatchObject({ seconds: 90, timePercent: 45,
+        expect(rows[1]).toMatchObject({ seconds: 90, timePercent: 45,
             codeBytes: 50, codePercent: 25 });
-        expect(rows[1]).toMatchObject({ codeBytes: 70, codePercent: 35 });
+        expect(rows[0]).toMatchObject({ codeBytes: 70, codePercent: 35 });
         expect(rows[3]).toMatchObject({ seconds: 50, timePercent: 25,
             codeBytes: 20, codePercent: 10 });
         expect(rows.reduce((sum, row) => sum + row.seconds, 0)).toBe(200);
@@ -286,7 +286,7 @@ describe('language comparison', () => {
             ['A', 'B', 'LangC', 'D', 'E', 'F'],
             ['U', 'V', 'W', 'X', 'Y', 'Z'],
         );
-        const expected = ['A', 'U', 'B', 'V', 'LangC', 'W', 'D', 'X', 'E', 'Y'];
+        const expected = ['U', 'A', 'V', 'B', 'W', 'LangC', 'X', 'D', 'Y', 'E'];
         expect(joinLanguages(data).slice(0, 10).map(row => row.name))
             .toEqual(expected);
         const svg = renderCard(data, { ...options, sort: 'alternating', limit: 10 });
@@ -301,15 +301,15 @@ describe('language comparison', () => {
         );
         const rows = joinLanguages(data);
         expect(rows.slice(0, 10).map(row => row.name))
-            .toEqual(['A', 'B', 'LangC', 'X', 'D', 'Y', 'E', 'Z', 'F', 'Q']);
+            .toEqual(['B', 'A', 'X', 'LangC', 'Y', 'D', 'Z', 'E', 'Q', 'F']);
         expect(new Set(rows.map(row => row.name)).size).toBe(rows.length);
-        expect(rows[0]).toMatchObject({ seconds: 800, codeBytes: 700 });
+        expect(rows[1]).toMatchObject({ seconds: 800, codeBytes: 700 });
     });
 
     it('merges aliases before alternating and falls back to the available source', () => {
         const data = rankedSnapshot(['Bash', 'Python'], ['Shell', 'C/C++']);
         expect(joinLanguages(data).map(row => row.name))
-            .toEqual(['Shell', 'Python', 'C/C++']);
+            .toEqual(['Shell', 'C/C++', 'Python']);
         expect(joinLanguages(data)[0]).toMatchObject({ seconds: 200, codeBytes: 200 });
         data.wakatime.data = null;
         expect(joinLanguages(data).map(row => row.name)).toEqual(['Shell', 'C/C++']);
@@ -544,7 +544,7 @@ describe('GitHub personal activity', () => {
             expect(svg).toContain(`>${value}</text>`);
         }
         for (const label of [
-            'Commits indexed', 'Calendar contributions', 'PRs reviewed',
+            'Commits', 'Calendar contributions', 'PRs reviewed',
             'PRs commented on', 'Issues commented on', 'Discussions started',
             'Accepted answers', 'Review contributions', 'Repos contributed to',
         ]) {
@@ -567,7 +567,7 @@ describe('GitHub personal activity', () => {
         const data = snapshot();
         const svg = renderCard(data, { ...options, view: 'activity' });
         expect(svg).toContain(' · unavailable · ');
-        expect(svg).toContain('Commits indexed: —.');
+        expect(svg).toContain('Commits: —.');
         expect(svg).toContain('Calendar contributions: —.');
         expect(svg).toContain('GitHub activity · unavailable · no successful snapshot yet');
         expect(svg).toContain('Public PRs opened: 80.');
@@ -592,7 +592,7 @@ describe('GitHub personal activity', () => {
         data.githubActivity!.status = 'unavailable';
         const unavailable = renderCard(data, { ...options, view: 'activity' });
         expect(unavailable).toContain('GitHub activity · unavailable');
-        expect(unavailable).toContain('Commits indexed: —.');
+        expect(unavailable).toContain('Commits: —.');
     });
 
     it('keeps activity visible when the other sources are unavailable', () => {

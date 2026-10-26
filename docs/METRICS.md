@@ -33,12 +33,16 @@ GitHub's activity counts also include organization and external open-source work
 that its APIs make visible to your token.
 
 The default card and expanded table show nine named groups plus **Others**.
-After grouping, selection alternates descending WakaTime seconds and GitHub
-bytes, skipping duplicates and the upstream Other category, until nine groups
+After grouping, selection alternates descending GitHub bytes and WakaTime
+seconds, starting with GitHub and skipping duplicates and the upstream Other category, until nine groups
 are selected. Those nine are displayed by descending WakaTime time. Others is
 always last and sums every remaining group plus WakaTime's unclassified Other.
 Both columns therefore represent the complete collected data, not just a top-N
 subset. Display sorting changes order, not which groups are selected.
+
+GitHub byte shares appear on the left and WakaTime shares on the right. Each
+language subtitle shows its code size in decimal B/KB/MB/GB followed by coding
+hours and minutes. Exact byte and second totals remain in the source JSON.
 
 Related languages are grouped before selection:
 

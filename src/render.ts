@@ -159,7 +159,7 @@ const COLORS: Record<string, string> = {
 
 const ACTIVITY_METRICS = [
     {
-        source: 'githubActivity', key: 'commits', label: 'Commits indexed',
+        source: 'githubActivity', key: 'commits', label: 'Commits',
         period: 'indexed',
         definition: 'Lifetime authored commits found in the GitHub search index '
             + 'on default branches. GitHub indexing rules apply; this is not a '
@@ -348,7 +348,7 @@ export function selectLanguages(
     const candidates = rows.filter(row =>
         !['other', 'others'].includes(row.name.trim().toLowerCase()));
     const selected = alternateRanks(
-        [...candidates].sort(byTime), [...candidates].sort(byCode),
+        [...candidates].sort(byCode), [...candidates].sort(byTime),
     ).slice(0, count - 1);
     const included = new Set(selected);
     const remainder = rows.filter(row => !included.has(row));
@@ -461,7 +461,7 @@ export function joinLanguages(
     const byTime = (a: LanguageRow, b: LanguageRow) =>
         b.seconds - a.seconds || byCode(a, b);
     if (sort === 'alternating') {
-        return alternateRanks([...rows].sort(byTime), [...rows].sort(byCode));
+        return alternateRanks([...rows].sort(byCode), [...rows].sort(byTime));
     }
     return rows.sort((a, b) => {
         if (sort === 'name') {
@@ -483,6 +483,15 @@ function duration(seconds: number): string {
     const minutes = Math.floor(finite(seconds) / 60);
     const hours = Math.floor(minutes / 60);
     return `${hours.toLocaleString('en-US')}h ${minutes % 60}m`;
+}
+
+function codeSize(bytes: number | null): string {
+    if (bytes === null) return '—';
+    const value = finite(bytes);
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const index = Math.min(units.length - 1,
+        Math.floor(Math.log10(Math.max(1, value)) / 3));
+    return `${Number((value / 1000 ** index).toFixed(1))} ${units[index]}`;
 }
 
 /** Age of the last successful refresh when this static card was generated. */
@@ -602,7 +611,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         },
         {
             id: 'commits-indexed', value: number(githubActivity?.commits),
-            label: 'COMMITS INDEXED',
+            label: 'COMMITS',
         },
         {
             id: 'pull-requests', value: number(github?.pullRequests),
@@ -708,13 +717,13 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             + text(32, 311, 'Existing saved data will appear here whenever a source is temporarily unavailable.', 12, palette.muted);
     } else {
         body = text(32, 258, 'LANGUAGE', 10, palette.muted, 'letter-spacing="1.1"')
-            + text(225, 258, timeRangeLabel(snapshot).toUpperCase(), 10, palette.time, 'letter-spacing="1"')
-            + text(558, 258, 'GITHUB · CODE BYTES', 10, palette.code, 'letter-spacing="1"');
+            + text(225, 258, 'GITHUB · CODE BYTES', 10, palette.code, 'letter-spacing="1"')
+            + text(558, 258, timeRangeLabel(snapshot).toUpperCase(), 10, palette.time, 'letter-spacing="1"');
         body += rows.map((row, index) => {
             const y = 289 + index * 39;
             const name = row.name.length > 23 ? row.name.slice(0, 22) + '…' : row.name;
-            const timeWidth = Math.min(100, row.timePercent) * 2.49;
-            const codeWidth = Math.min(100, row.codePercent ?? 0) * 2.10;
+            const timeWidth = Math.min(100, row.timePercent) * 2.10;
+            const codeWidth = Math.min(100, row.codePercent ?? 0) * 2.49;
             return `<g><title>${xml(row.name)}: WakaTime ${row.timePercent.toFixed(2)}%; `
                 + `GitHub ${row.codePercent === null ? 'not comparable' : row.codePercent.toFixed(2) + '%'}</title>`
                 + `<svg data-language-icon="${xml(row.name)}" x="32" y="${y - 10}" `
@@ -722,13 +731,14 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
                 + `fill="${row.color}"><path fill-rule="${row.name === 'SQL' ? 'evenodd' : 'nonzero'}" `
                 + `d="${xml(languageIcon(row.name, LANGUAGE_ICONS))}"/></svg>`
                 + text(64, y, name, 13, palette.fg, 'font-weight="500"')
-                + text(64, y + 14, waka ? duration(row.seconds) : '—', 10, palette.muted)
+                + text(64, y + 14, `${codeSize(row.codeBytes)} · `
+                    + (waka ? duration(row.seconds) : '—'), 10, palette.muted)
                 + `<rect x="225" y="${y - 10}" width="249" height="7" rx="3.5" fill="${palette.track}"/>`
-                + `<rect x="225" y="${y - 10}" width="${timeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.time}"/>`
-                + text(523, y, waka ? `${row.timePercent.toFixed(1)}%` : '—', 11, palette.time, 'text-anchor="end"')
+                + `<rect x="225" y="${y - 10}" width="${codeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.code}"/>`
+                + text(523, y, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, 11, palette.code, 'text-anchor="end"')
                 + `<rect x="558" y="${y - 10}" width="210" height="7" rx="3.5" fill="${palette.track}"/>`
-                + `<rect x="558" y="${y - 10}" width="${codeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.code}"/>`
-                + text(841, y, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, 11, palette.code, 'text-anchor="end"')
+                + `<rect x="558" y="${y - 10}" width="${timeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.time}"/>`
+                + text(841, y, waka ? `${row.timePercent.toFixed(1)}%` : '—', 11, palette.time, 'text-anchor="end"')
                 + '</g>';
         }).join('');
     }
@@ -891,8 +901,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <img id="card" alt="Unified WakaTime and GitHub profile statistics" hidden></div>
 <p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures current repository language bytes, not personally authored lines.</p>
 <details id="language-details"><summary>Language breakdown <small id="language-count">Waiting for data</small></summary>
-<div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating WakaTime and GitHub ranks, then ordered by coding time by default. Others includes every remaining group and unclassified time. Both source totals are fully represented, with separate denominators. Raw values remain in the source JSON. A dash means unavailable data.</p>
-<div class="table-wrap"><table><thead><tr><th>Language</th><th>Time</th><th>Time share</th><th>Code share</th></tr></thead>
+<div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating GitHub and WakaTime ranks, starting with GitHub, then ordered by coding time by default. Others includes every remaining group and unclassified time. Both source totals are fully represented, with separate denominators. Raw values remain in the source JSON. A dash means unavailable data.</p>
+<div class="table-wrap"><table><thead><tr><th>Language</th><th>Code share</th><th>Time</th><th>Time share</th></tr></thead>
 <tbody id="language-body"></tbody></table></div></div></details>
 <details id="activity-details"><summary>GitHub activity <small id="activity-summary">Waiting for data</small></summary>
 <div class="detail-body"><p class="detail-note" id="activity-source">Waiting for GitHub activity source.</p>
@@ -1013,8 +1023,9 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
             path.setAttribute('d', languageIcon(row.name, languageIcons));
             icon.append(path);
             name.append(icon, document.createTextNode(row.name)); tr.append(name);
-            for (const value of [snapshot.wakatime.data ? duration(row.seconds) : '—',
-                snapshot.wakatime.data ? percentage(row.timePercent) : '—', percentage(row.codePercent)]) {
+            for (const value of [percentage(row.codePercent),
+                snapshot.wakatime.data ? duration(row.seconds) : '—',
+                snapshot.wakatime.data ? percentage(row.timePercent) : '—']) {
                 const td = document.createElement('td'); td.textContent = value; tr.append(td);
             }
             $('language-body').append(tr);

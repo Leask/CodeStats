@@ -51,16 +51,16 @@ try {
         .filter(row => jsNames.has(row.name.toLowerCase()))
         .reduce((sum, row) => sum + row.seconds, 0);
     const hours = Math.floor(seconds / 3600).toLocaleString('en-US');
-    checks.groupedTimeSum = js[1] === hours + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
+    checks.groupedTimeSum = js[2] === hours + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
     const c = displayed.find(row => row[0] === 'C/C++');
     const bytes = expected.github.data.languages
         .filter(row => ['c', 'c++', 'cpp', 'makefile'].includes(row.name.toLowerCase()))
         .reduce((sum, row) => sum + row.bytes, 0);
-    checks.groupedCodeShare = c[3]
+    checks.groupedCodeShare = c[1]
         === (100 * bytes / expected.github.data.totalBytes).toFixed(2) + '%';
     checks.timeDefault = await page.locator('#sort').inputValue() === 'time';
-    const timeShares = displayed.map(row => parseFloat(row[2]));
-    const codeShares = displayed.map(row => parseFloat(row[3]));
+    const timeShares = displayed.map(row => parseFloat(row[3]));
+    const codeShares = displayed.map(row => parseFloat(row[1]));
     const hundred = (values, scale) => values.reduce((sum, value) =>
         sum + Math.round(value * scale), 0) === 100 * scale;
     checks.completeTimeShare = hundred(timeShares, 100);
@@ -88,6 +88,10 @@ try {
     ))].map(match => Number(match[1]));
     checks.cardDisplayedShares = hundred(cardShares(523), 10)
         && hundred(cardShares(841), 10);
+    checks.githubColumnFirst = /<text x="225" y="258"[^>]*>GITHUB · CODE BYTES<\/text>/.test(card)
+        && /<text x="558" y="258"[^>]*>RECENT /.test(card)
+        && JSON.stringify(await page.locator('#language-details th').allTextContents())
+            === JSON.stringify(['Language', 'Code share', 'Time', 'Time share']);
     checks.defaultTenRows = svgNames.length === Math.min(10, names.length);
     checks.cardAndTableOrderMatch = JSON.stringify(svgNames)
         === JSON.stringify(names.slice(0, 10));
@@ -167,6 +171,7 @@ try {
     checks.footerLayout = true;
     checks.twoSummaryRows = true;
     checks.profileHeader = true;
+    checks.languageSubtitles = true;
     const clipping = [];
     for (const view of ['overview', 'activity']) {
         for (const theme of ['dark', 'light', 'transparent']) {
@@ -215,6 +220,7 @@ try {
                     'followers', 'stars'];
                 if (JSON.stringify(ids) !== JSON.stringify(expected)) return false;
                 if (groups.some(group => group.querySelectorAll('text').length !== 2)) return false;
+                if (groups[3].querySelectorAll('text')[1].textContent !== 'COMMITS') return false;
                 const boxes = groups.map(group => group.getBoundingClientRect());
                 return boxes.every((box, index) => {
                     const rowStart = Math.floor(index / 4) * 4;
@@ -224,6 +230,18 @@ try {
                         && (index < 4 ? box.bottom + 8 < boxes[index + 4].top : true);
                 });
             });
+            if (view === 'overview') {
+                checks.languageSubtitles &&= await svgPage.evaluate(() => {
+                    const icons = [...document.querySelectorAll('[data-language-icon]')];
+                    return icons.length > 0 && icons.every(icon => {
+                        const texts = icon.parentNode.querySelectorAll(':scope > text');
+                        const subtitle = texts[1];
+                        return /^(?:[\d.]+ (?:B|KB|MB|GB|TB)|—) · \d[\d,]*h \d+m$/
+                            .test(subtitle.textContent)
+                            && subtitle.getBBox().x + subtitle.getBBox().width < 225;
+                    });
+                });
+            }
             checks.footerLayout &&= await svgPage.evaluate(() => {
                 const refresh = document.querySelector('[data-refresh-times] text')
                     .getBoundingClientRect();
