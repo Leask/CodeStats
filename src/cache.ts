@@ -1,5 +1,5 @@
 import type {
-    GitHubData, Range, SourceSnapshot, StatsSnapshot, WakaData,
+    GitHubActivityData, GitHubData, Range, SourceSnapshot, StatsSnapshot, WakaData,
 } from './types';
 import { UpstreamError } from './errors';
 
@@ -10,6 +10,7 @@ export interface Storage {
 
 interface Loaders {
     github: () => Promise<GitHubData>;
+    githubActivity?: () => Promise<GitHubActivityData>;
     wakatime: (range: Range) => Promise<WakaData>;
 }
 
@@ -17,6 +18,8 @@ interface Policy {
     freshSeconds: number;
     retrySeconds: number;
     now?: () => number;
+    githubKey?: string;
+    githubActivityKey?: string;
 }
 
 type WaitUntil = (promise: Promise<unknown>) => void;
@@ -82,10 +85,16 @@ export class SnapshotCache {
                 await this.storage.put(key, result);
                 return result;
             } catch (error) {
+                const retrySeconds = error instanceof UpstreamError
+                    && error.retryAfterSeconds !== undefined
+                    ? Math.max(this.policy.retrySeconds, error.retryAfterSeconds)
+                    : this.policy.retrySeconds;
                 const result = this.classify({
                     ...pending,
+                    retryAt: new Date(this.now() + retrySeconds * 1000)
+                        .toISOString(),
                     lastError: error instanceof UpstreamError ? error.message
-                        : key === 'github'
+                        : key.startsWith('github')
                         ? 'GitHub refresh failed. Showing the last successful snapshot when available.'
                         : 'WakaTime refresh failed. Check the published range or OAuth access; saved data is retained.',
                 });
@@ -141,13 +150,18 @@ export class SnapshotCache {
     }
 
     async read(range: Range, waitUntil: WaitUntil): Promise<StatsSnapshot> {
-        const [github, wakatime] = await Promise.all([
-            this.source('github', this.loaders.github, waitUntil),
+        const [github, wakatime, githubActivity] = await Promise.all([
+            this.source(this.policy.githubKey ?? 'github',
+                this.loaders.github, waitUntil),
             this.source('wakatime:' + range,
                 () => this.loaders.wakatime(range), waitUntil),
+            this.loaders.githubActivity
+                ? this.source(this.policy.githubActivityKey ?? 'github:activity',
+                    this.loaders.githubActivity, waitUntil) : undefined,
         ]);
         return {
             schemaVersion: 1, github, wakatime, range,
+            ...(githubActivity ? { githubActivity } : {}),
             generatedAt: new Date(this.now()).toISOString(),
         };
     }

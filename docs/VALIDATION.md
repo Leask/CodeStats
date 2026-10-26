@@ -1,67 +1,71 @@
-# Local review — 2026-10-25
+# Validation — 2026-10-26
 
-The prototype runs at `http://127.0.0.1:8791` on Flora. No Cloudflare resources
-have been provisioned, no remote repository created, and no profile README edited.
+The same shared application runs in a regular Node HTTP server and in
+Cloudflare workerd. The current implementation has no runtime dependency on
+GitHub Stats Extended or its deployment. Historical links in the collection
+notes are research references only.
 
-## Accepted evidence
+## Automated checks
 
-- TypeScript strict check passes.
-- 36 unit tests pass:18 collector,12 renderer,6 cache.
-- Nine isolated Cloudflare workerd/SQLite checks pass. After successful mock
-  fetches, both upstreams return503: the card remains HTTP200 SVG, data and old
-  success timestamps remain, repeated requests respect cooldown, and a new
-  runtime over the same SQLite directory recovers both records and cooldown.
-  A separate empty profile during outage stays `unavailable` with null data.
-- The real local Wrangler preview was stopped and restarted over its existing
-  cache. Both real source payloads and original success timestamps were unchanged.
-- Eleven real-browser checks pass in isolated Chrome Beta via Playwright:
-  live sources,106 joined rows, expansion, sorting, theme switching, README
-  hierarchy, clipboard copying, unavailable-range handling, mobile overflow,
-  SVG text bounds and absence of JavaScript errors.
-- The latest dry build succeeds:76.08KiB total /17.47KiB gzip. This is
-  `wrangler deploy --dry-run`, not deployment.
-- `npm audit` reports zero vulnerabilities at preparation.
+- Strict TypeScript check passes.
+- All92 tests in six files pass: official API collectors, pagination and scope
+  checks, rendering, independent source caches and eight Node integration tests.
+- Ten isolated real-workerd/SQLite checks pass. Warm successful snapshots survive
+  injected upstream503 failures and runtime restart with their original success
+  timestamps, failure cooldown and usable SVG. Cold failures never invent data.
+- Node integration covers shared HTTP/JSON/SVG/HEAD/ETag/method handling,
+  SQLite persistence, account isolation, private file/sidecar permissions,
+  failure fallback and cooldown, and graceful background-refresh shutdown.
+- Both build targets pass: `npm run build:node` and the Worker
+  `npm run build` dry-run. A dry-run does not publish to Cloudflare.
+- Production dependency audit reports zero vulnerabilities.
 
-Actual retained aggregate snapshot:197 owned public repositories including
-forks;116 non-forks analyzed;25 GitHub languages totaling18,925,758 bytes.
-WakaTime returns103 language records totaling49,986,830.01259 seconds including
-Other, from its public all-time range. Today is excluded by the source. These
-figures identify the observed snapshot, not permanent expected test values.
+## Actual local acceptance
 
-Machine-readable receipts and screenshots are under ignored `artifacts/`:
+Both local runtimes fetched real data from the fixed official GitHub and
+WakaTime origins. GitHub core, personal activity and WakaTime all-time snapshots
+all returned fresh, nonempty data. WakaTime currently returns104 language rows,
+joined into129 language mappings with GitHub. These are observed values, not
+fixtures or permanent expectations.
 
-- `live-snapshot-validated.json`
-- `cache-runtime-review.json`
-- `live-restart-review.json`
-- `browser-review.json`
-- `preview-desktop.png`, `preview-mobile.png`
-- `card-dark.png`, `card-light.png`, `card-transparent.png`
+Both processes were gracefully stopped and recreated over their original cache
+directories. The three provider payloads and all original success timestamps
+were independently compared and were unchanged. No local cache was reset or
+migrated between modes.
 
-## Corrections verified during development
+Seventeen real-browser checks passed against each runtime, using isolated Chrome
+Beta via Playwright because the enabled tool catalog exposed no built-in browser,
+global Chrome or Computer Use controller. Checks cover live sources, full language
+rows, expansion, sorting/themes, range isolation, GitHub activity and annual
+history, README generation/clipboard, mobile overflow, six SVG view/theme bounds,
+and JavaScript errors. Screenshots were inspected; no clipping was found.
 
-- Workers supports `redirect: 'manual'`, rather than Fetch's `error` mode.
-  Both collectors reject3xx without forwarding credentials to another origin.
-  The failed initial local cache contained no successful records and was
-  retained separately under `.wrangler/first-start-without-success`.
-- WakaTime freshness must be boolean true; present range/status fields must
-  match the request and `ok`. Malformed or wrong-range200 responses cannot
-  replace last-good data. Independent review reproduced the earlier boundary
-  before verifying rejection after the fix.
-- Precise coding seconds determine time ordering. Rounded0.00% rows cannot
-  put a GitHub-only language ahead of positive tracked time.
-- The isolated runtime harness uses the installed Miniflare5 compatibility
-  converter, a bounded module root and its actual resource persistence option.
-  Its temporary test-only class is not exported by production `src/index.ts`.
+## Secret and publication boundary
 
-## Review limits
+Only `.env.example`, `.dev.vars.example` and nonsecret `wrangler.jsonc` are
+publishable configuration. Real `.env`/`.dev.vars`, SQLite files, `.data`,
+`.wrangler`, screenshots, aggregate receipts and build output are ignored.
+Before publication, Git-visible files and all historical blobs were scanned
+in memory for configured key values and common token patterns. Values are never
+printed or copied into reports. The server credential file remains0600.
 
-This validates a local implementation, real read-only upstream collection,
-and simulated outages in the real Worker runtime. Production deployment,
-Cloudflare account quotas and GitHub Camo behavior are not accepted here.
-The initial activity view covers public repository/PR/issue/follower/star/fork
-aggregates; it does not reproduce every optional metric from the old service.
+Runtime secrets belong in the Node environment/private `.env`, or Cloudflare
+Settings → Variables and Secrets / `wrangler secret put`, never Wrangler `vars`.
+The Node process may also reuse the existing private `.dev.vars` for local review.
 
-The built-in Browser, Chrome integration and configured Computer Use did not
-expose a usable browser controller in this session. UI validation therefore
-used an isolated local Chrome Beta process, without changing an existing
-browser profile or session. The preview remains running for user review.
+## Limits
+
+GitHub results cover token-visible, API/search-indexed data. Deleted history,
+revoked access and organization SSO policies limit coverage. WakaTime may be
+recalculating or may not expose a requested private range; last-successful data
+is retained and timestamps remain visible. GitHub code bytes measure repository
+content, not personal authorship or coding time.
+
+These checks validate local operation, failure fallback, restart persistence and
+publishable source. Cloudflare production deployment, account quotas, global
+storage availability and GitHub Camo refresh timing have not been accepted here.
+The profile README has not been changed.
+
+Ignored local receipts include `artifacts/dual-runtime-restart-review.json`,
+`artifacts/cache-runtime-review.json`, `artifacts/browser-review.json` and preview
+screenshots. They are deliberately excluded from the public source repository.

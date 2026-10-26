@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "private": true,
     "type": "module",
-    "description": "One resilient GitHub and WakaTime profile card on Cloudflare Workers.",
+    "description": "Resilient GitHub and WakaTime statistics for Node.js and Cloudflare Workers.",
     "scripts": {
         "dev": "wrangler dev --ip 127.0.0.1 --port 8791",
         "check": "tsc --noEmit",
@@ -11,7 +11,10 @@
         "build": "wrangler deploy --dry-run --outdir dist",
         "deploy": "wrangler deploy",
         "test:runtime": "node scripts/cache-runtime-check.mjs",
-        "test:preview": "node scripts/preview-check.mjs"
+        "test:preview": "node scripts/preview-check.mjs",
+        "start": "npm run build:node && node --env-file-if-exists=.dev.vars --env-file-if-exists=.env dist/node.mjs",
+        "dev:worker": "wrangler dev --ip 127.0.0.1 --port 8791",
+        "build:node": "node scripts/build-node.mjs"
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^5.20261025.1",
@@ -32,6 +35,11 @@
         "fsevents@2.3.3": true
     },
     "engines": {
-        "node": ">=22"
-    }
+        "node": ">=26.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Leask/CodeStats.git"
+    },
+    "homepage": "https://github.com/Leask/CodeStats#readme"
 }

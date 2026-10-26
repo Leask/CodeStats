@@ -36,6 +36,26 @@ const repositories = (
     } },
 });
 const json = (data: unknown) => Response.json({ data });
+const privateJson = (data: unknown, scopes = 'repo') => Response.json({ data }, {
+    headers: { 'x-oauth-scopes': scopes },
+});
+const allProfile = {
+    ...profile,
+    user: {
+        ...profile.user,
+        privateRepositories: { totalCount: 2 },
+        repositories: { totalCount: 5 },
+    },
+};
+const allRepositories = (
+    nodes: unknown[] = [repository()], totalCount = 1,
+    hasNextPage = false, endCursor: string | null = null,
+) => ({
+    user: {
+        login: 'Leask',
+        ...repositories(nodes, totalCount, hasNextPage, endCursor).user,
+    },
+});
 
 function sequence(responses: Response[]) {
     const requests: Array<{
@@ -59,6 +79,7 @@ function sequence(responses: Response[]) {
 }
 
 const githubEnv = { GITHUB_USERNAME: 'Leask', GITHUB_TOKEN: 'fixture-only' };
+const allGithubEnv = { ...githubEnv, GITHUB_VISIBILITY: 'all' as const };
 
 describe('GitHub collector', () => {
     it('joins every repository and nested language page with explicit scope', async () => {
@@ -83,6 +104,7 @@ describe('GitHub collector', () => {
         expect(data.totalBytes).toBe(270);
         expect(data.analyzedRepositories).toBe(2);
         expect(data.publicRepositories).toBe(3);
+        expect(data.visibility).toBe('public');
         expect(data.stars).toBe(6);
         expect(data.languages.map((x) => [x.name, x.bytes])).toEqual([
             ['Python', 120], ['TypeScript', 120], ['JavaScript', 30],
@@ -98,11 +120,177 @@ describe('GitHub collector', () => {
             id: 'repo-1', after: 'lang-next',
         });
         expect(requests[3]?.body.variables).toEqual({
-            login: 'Leask', after: 'repo-next',
+            login: 'Leask', after: 'repo-next', privacy: 'PUBLIC',
         });
         expect(JSON.stringify(data)).not.toContain('repo-1');
         expect(JSON.stringify(data)).not.toContain('fixture-only');
         expect(requests.every((request) => request.redirect === 'manual')).toBe(true);
+    });
+
+    it('includes private owned bytes and token-visible authored activity in all mode', async () => {
+        const privateRepo = {
+            ...repository('private-repository-id'),
+            name: 'private-repository-name',
+            isPrivate: true,
+            languages: {
+                totalSize: 150, pageInfo: pageInfo(true, 'private-language-next'),
+                edges: edges('Rust'),
+            },
+        };
+        const { fetcher, requests } = sequence([
+            privateJson(allProfile),
+            privateJson(allRepositories([privateRepo], 2, true, 'next')),
+            privateJson({ node: {
+                isPrivate: true, isFork: false,
+                languages: {
+                    totalSize: 150, pageInfo: pageInfo(),
+                    edges: edges('JavaScript', 30),
+                },
+            } }),
+            privateJson(allRepositories([repository()], 2)),
+        ]);
+        const data = await fetchGitHub(allGithubEnv, fetcher);
+        expect(data).toMatchObject({
+            visibility: 'all', repositories: 5, publicRepositories: 3,
+            privateRepositories: 2, analyzedRepositories: 2,
+            totalBytes: 270, stars: 6, forks: 4,
+            pullRequests: 40, mergedPullRequests: 30, issues: 12,
+        });
+        expect(data.languages.map(x => [x.name, x.bytes])).toEqual([
+            ['Rust', 120], ['TypeScript', 120], ['JavaScript', 30],
+        ]);
+        expect(requests[0]?.body.variables).toEqual({
+            login: 'Leask', all: true,
+            prs: 'author:Leask is:pr',
+            merged: 'author:Leask is:pr is:merged',
+            issues: 'author:Leask is:issue',
+        });
+        expect(String(requests[0]?.body.query)).toContain('privateRepositories:');
+        expect(String(requests[1]?.body.query)).toContain('privacy: $privacy');
+        expect(String(requests[1]?.body.query)).toContain('ownerAffiliations: [OWNER]');
+        expect(requests[1]?.body.variables).toEqual({
+            login: 'Leask', after: null, privacy: null,
+        });
+        expect(requests[3]?.body.variables).toEqual({
+            login: 'Leask', after: 'next', privacy: null,
+        });
+        expect(data.scope).toContain('organizations and external repositories');
+        expect(JSON.stringify(data)).not.toContain('private-repository');
+        expect(JSON.stringify(data)).not.toContain('fixture-only');
+    });
+
+    it('requires declared private repository access in all mode', async () => {
+        for (const response of [json(allProfile), privateJson(allProfile, 'read:user')]) {
+            const { fetcher, requests } = sequence([response]);
+            await expect(fetchGitHub(allGithubEnv, fetcher))
+                .rejects.toThrow('scope');
+            expect(requests).toHaveLength(1);
+        }
+    });
+
+    it.each(['privateRepositories', 'repositories'] as const)(
+        'rejects missing all-mode %s totals', async field => {
+            const user: Record<string, unknown> = { ...allProfile.user };
+            delete user[field];
+            const { fetcher } = sequence([privateJson({ ...allProfile, user })]);
+            await expect(fetchGitHub(allGithubEnv, fetcher))
+                .rejects.toThrow('incomplete data');
+        },
+    );
+
+    it('rejects inconsistent all-mode totals and repository scope counts', async () => {
+        const wrongTotal = sequence([privateJson({
+            ...allProfile,
+            user: { ...allProfile.user, repositories: { totalCount: 6 } },
+        })]);
+        await expect(fetchGitHub(allGithubEnv, wrongTotal.fetcher))
+            .rejects.toThrow('totals are inconsistent');
+        const missingPrivate = sequence([
+            privateJson({
+                ...allProfile,
+                user: {
+                    ...allProfile.user,
+                    privateRepositories: { totalCount: 0 },
+                    repositories: { totalCount: 3 },
+                },
+            }),
+            privateJson(allRepositories([{ ...repository(), isPrivate: true }])),
+        ]);
+        await expect(fetchGitHub(allGithubEnv, missingPrivate.fetcher))
+            .rejects.toThrow('totals changed');
+    });
+
+    it('rejects a different profile or paged owner identity', async () => {
+        const wrongProfile = sequence([json({
+            ...profile, user: { ...profile.user, login: 'AnotherUser' },
+        })]);
+        await expect(fetchGitHub(githubEnv, wrongProfile.fetcher))
+            .rejects.toThrow('profile identity changed');
+        for (const login of ['AnotherUser', undefined]) {
+            const { fetcher } = sequence([
+                privateJson(allProfile),
+                privateJson({ user: { ...allRepositories().user, login } }),
+            ]);
+            await expect(fetchGitHub(allGithubEnv, fetcher)).rejects.toThrow();
+        }
+    });
+
+    it.each([
+        { isPrivate: undefined },
+        { isPrivate: null },
+        { isPrivate: 'true' },
+        { isFork: true },
+        { isFork: undefined },
+    ])('rejects malformed or out-of-scope all-mode repository flags %j', async flags => {
+        const { fetcher } = sequence([
+            privateJson(allProfile),
+            privateJson(allRepositories([{ ...repository(), ...flags }])),
+        ]);
+        await expect(fetchGitHub(allGithubEnv, fetcher))
+            .rejects.toThrow('scope or pagination changed');
+    });
+
+    it('rejects private visibility changes on nested language pages', async () => {
+        const repo = {
+            ...repository(), isPrivate: true,
+            languages: {
+                totalSize: 150, pageInfo: pageInfo(true, 'next'), edges: edges(),
+            },
+        };
+        const { fetcher } = sequence([
+            privateJson(allProfile), privateJson(allRepositories([repo])),
+            privateJson({ node: {
+                isPrivate: false, isFork: false,
+                languages: {
+                    totalSize: 150, pageInfo: pageInfo(), edges: edges('Rust', 30),
+                },
+            } }),
+        ]);
+        await expect(fetchGitHub(allGithubEnv, fetcher))
+            .rejects.toThrow('visibility changed');
+    });
+
+    it('rejects incomplete and repeated all-mode repository pagination', async () => {
+        const truncated = sequence([
+            privateJson(allProfile), privateJson(allRepositories([repository()], 2)),
+        ]);
+        await expect(fetchGitHub(allGithubEnv, truncated.fetcher))
+            .rejects.toThrow('pagination is incomplete');
+        const repeated = sequence([
+            privateJson(allProfile),
+            privateJson(allRepositories([repository()], 2, true, 'next')),
+            privateJson(allRepositories([repository()], 2)),
+        ]);
+        await expect(fetchGitHub(allGithubEnv, repeated.fetcher))
+            .rejects.toThrow('scope or pagination changed');
+    });
+
+    it('rejects invalid visibility before making an upstream call', async () => {
+        const { fetcher, requests } = sequence([]);
+        await expect(fetchGitHub({
+            ...githubEnv, GITHUB_VISIBILITY: 'private' as 'all',
+        }, fetcher)).rejects.toThrow('visibility is invalid');
+        expect(requests).toHaveLength(0);
     });
 
     it('fails closed when a later page fails instead of returning a partial total', async () => {

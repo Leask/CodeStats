@@ -6,6 +6,9 @@ export interface GitHubData {
     name: string;
     followers: number;
     publicRepositories: number;
+    repositories?: number;
+    privateRepositories?: number;
+    visibility?: 'public' | 'all';
     analyzedRepositories: number;
     stars: number;
     forks: number;
@@ -15,6 +18,29 @@ export interface GitHubData {
     languages: Array<{ name: string; bytes: number; color: string }>;
     totalBytes: number;
     scope: string;
+}
+
+/** Aggregate personal activity; never expose private repository identities. */
+export interface GitHubActivityData {
+    username: string;
+    visibility: 'public' | 'all';
+    scope: string;
+    commits: number;
+    pullRequestsCommented: number;
+    pullRequestsReviewed: number;
+    issuesCommented: number;
+    discussionsStarted: number;
+    discussionsAnswered: number;
+    reviewContributions: number;
+    contributedRepositories: number;
+    allTimeContributedRepositories: number;
+    allTimeContributions: number;
+    contributionsByYear: Array<{ year: number; contributions: number }>;
+    recentFrom: string;
+    recentTo: string;
+    allTimeFrom: string;
+    allTimeTo: string;
+    organizationCount: number;
 }
 
 export interface WakaData {
@@ -41,6 +67,7 @@ export interface SourceSnapshot<T> {
 export interface StatsSnapshot {
     schemaVersion: 1;
     github: SourceSnapshot<GitHubData>;
+    githubActivity?: SourceSnapshot<GitHubActivityData>;
     wakatime: SourceSnapshot<WakaData>;
     range: Range;
     generatedAt: string;
@@ -62,15 +89,19 @@ export interface CardOptions {
     sort: 'time' | 'code' | 'name';
 }
 
-export interface Env {
-    SNAPSHOTS: DurableObjectNamespace;
+export interface Settings {
     GITHUB_USERNAME: string;
     WAKATIME_USERNAME: string;
     DEFAULT_RANGE: string;
     FRESH_SECONDS: string;
     RETRY_SECONDS: string;
     GITHUB_TOKEN?: string;
+    GITHUB_VISIBILITY?: 'public' | 'all';
     WAKATIME_TOKEN?: string;
+}
+
+export interface Env extends Settings {
+    SNAPSHOTS: DurableObjectNamespace;
 }
 
 export type Fetcher = typeof fetch;

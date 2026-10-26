@@ -13,7 +13,10 @@ export class RuntimeTestStore extends SnapshotStore {
 
     override async fetch(request: Request): Promise<Response> {
         if (new URL(request.url).pathname === '/test/age') {
-            for (const key of ['github', 'wakatime:all_time']) {
+            for (const key of [
+                'github', 'github:all-v1', 'github:activity:all:v1',
+                'wakatime:all_time',
+            ]) {
                 const record = await this.testStorage.get<SourceSnapshot<unknown>>(key);
                 if (record?.data) {
                     await this.testStorage.put(key, {

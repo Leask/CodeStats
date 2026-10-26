@@ -46,6 +46,121 @@ const COLORS: Record<string, string> = {
     other: '#8791a3',
 };
 
+const ACTIVITY_METRICS = [
+    {
+        source: 'githubActivity', key: 'commits', label: 'Commits indexed',
+        period: 'indexed',
+        definition: 'Lifetime authored commits found in the GitHub search index '
+            + 'on default branches. GitHub indexing rules apply; this is not a '
+            + 'complete Git history.',
+    },
+    {
+        source: 'githubActivity', key: 'allTimeContributions',
+        label: 'Calendar contributions', period: 'calendar',
+        definition: 'Sum of GitHub contribution calendar totals for every '
+            + 'account year. Calendar eligibility rules apply; not a commit count.',
+    },
+    {
+        source: 'githubActivity', key: 'pullRequestsReviewed',
+        label: 'PRs reviewed', period: 'lifetime',
+        definition: 'Distinct pull requests reviewed by this user, excluding '
+            + 'their own pull requests. Multiple reviews count once per PR.',
+    },
+    {
+        source: 'githubActivity', key: 'pullRequestsCommented',
+        label: 'PRs commented on', period: 'lifetime',
+        definition: 'Distinct pull requests commented on by this user, excluding '
+            + 'their own pull requests. Multiple comments count once per PR.',
+    },
+    {
+        source: 'githubActivity', key: 'issuesCommented',
+        label: 'Issues commented on', period: 'lifetime',
+        definition: 'Distinct issues commented on by this user, excluding their '
+            + 'own issues. Pull requests are excluded; repeated comments count once.',
+    },
+    {
+        source: 'githubActivity', key: 'discussionsStarted',
+        label: 'Discussions started', period: 'lifetime',
+        definition: 'Lifetime repository discussions authored by this user.',
+    },
+    {
+        source: 'githubActivity', key: 'discussionsAnswered',
+        label: 'Accepted answers', period: 'lifetime',
+        definition: 'Lifetime authored repository discussion comments marked '
+            + 'as accepted answers.',
+    },
+    {
+        source: 'githubActivity', key: 'allTimeContributedRepositories',
+        label: 'Repos contributed to', period: 'lifetime',
+        definition: 'Distinct currently non-owned repositories reached by visible '
+            + 'commit, issue, pull request and repository-creation contributions '
+            + 'across collected account years. Deduplicated across years and '
+            + 'contribution types; review-only repositories are excluded.',
+    },
+    {
+        source: 'githubActivity', key: 'reviewContributions',
+        label: 'Review contributions', period: 'recent',
+        definition: 'GitHub contribution-collection pull request review '
+            + 'contributions in the stated recent-year window. This counts '
+            + 'contributions, not distinct pull requests.',
+    },
+    {
+        source: 'githubActivity', key: 'contributedRepositories',
+        label: 'Repos contributed to', period: 'recent',
+        definition: 'GitHub recent-year repositoriesContributedTo count, excluding '
+            + 'currently user-owned repositories, for commit, issue, pull request '
+            + 'and repository-creation contributions. GitHub eligibility and '
+            + 'visibility rules apply.',
+    },
+    {
+        source: 'github', key: 'pullRequests', label: 'PRs opened',
+        period: 'lifetime',
+        definition: 'Lifetime pull requests authored by this user across '
+            + 'repositories in the source visibility scope.',
+    },
+    {
+        source: 'github', key: 'issues', label: 'Issues opened',
+        period: 'lifetime',
+        definition: 'Lifetime issues authored by this user across repositories '
+            + 'in the source visibility scope. Pull requests are excluded.',
+    },
+    {
+        source: 'github', key: 'followers', label: 'Followers', period: 'current',
+        definition: 'Current followers of the GitHub account.',
+    },
+    {
+        source: 'github', key: 'forks', label: 'Repository forks',
+        period: 'current',
+        definition: 'Current fork counts received by the owned non-fork '
+            + 'repositories analyzed for the separate language-byte source.',
+    },
+] as const;
+
+const ACTIVITY_PERIODS = {
+    current: 'Current',
+    indexed: 'Lifetime · GitHub index',
+    calendar: 'Lifetime · calendar',
+    lifetime: 'Lifetime',
+    recent: 'Recent year',
+};
+
+function githubActivitySource(snapshot: StatsSnapshot) {
+    return snapshot.githubActivity ?? {
+        data: null, status: 'unavailable' as const,
+        lastSuccessAt: null, lastAttemptAt: null,
+        lastError: null, retryAt: null,
+    };
+}
+
+function day(value: string | undefined): string {
+    return value && !Number.isNaN(Date.parse(value))
+        ? new Date(value).toISOString().slice(0, 10) : 'date unavailable';
+}
+
+function shortened(value: string, maximum: number): string {
+    return value.length > maximum ? value.slice(0, maximum - 1) + '…' : value;
+}
+
 function canonical(name: string): string {
     const normalized = name.trim().toLowerCase();
     return ALIASES[normalized] ?? normalized;
@@ -141,7 +256,8 @@ export function joinLanguages(
 }
 
 function number(value: number | undefined): string {
-    return value === undefined ? '—' : Math.round(value).toLocaleString('en-US');
+    return value === undefined || !Number.isFinite(value) || value < 0
+        ? '—' : Math.round(value).toLocaleString('en-US');
 }
 
 function duration(seconds: number): string {
@@ -199,21 +315,32 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const rows = allRows.slice(0, limit);
     const activity = options.view === 'activity';
     const empty = rows.length === 0;
-    const bodyHeight = activity ? 144 : Math.max(96, rows.length * 39 + 44);
+    const bodyHeight = activity ? 448 : Math.max(96, rows.length * 39 + 44);
     const footerY = 257 + bodyHeight;
-    const height = footerY + 125;
+    const height = footerY + (activity ? 145 : 125);
     const github = snapshot.github.data;
+    const activitySource = githubActivitySource(snapshot);
+    const githubActivity = activitySource.data;
     const waka = snapshot.wakatime.data;
-    const username = github?.username ?? waka?.username ?? 'Your profile';
-    const stale = snapshot.github.status === 'stale'
-        || snapshot.wakatime.status === 'stale';
-    const complete = github !== null && waka !== null;
+    const username = github?.username ?? waka?.username
+        ?? githubActivity?.username ?? 'Your profile';
+    const sources: Array<SourceSnapshot<unknown>> = [snapshot.github, snapshot.wakatime];
+    if (activity) sources.push(activitySource);
+    const stale = sources.some((source) => source.status === 'stale');
+    const complete = sources.every((source) => source.data !== null
+        && source.status !== 'unavailable');
     const label = stale ? 'SAVED SNAPSHOT' : complete ? 'FRESH SNAPSHOT'
-        : github || waka ? 'PARTIAL DATA' : 'WAITING FOR DATA';
+        : sources.some((source) => source.data !== null) ? 'PARTIAL DATA' : 'WAITING FOR DATA';
     const statusColor = stale || !complete ? '#d7ac62' : palette.time;
     const title = `${username} · coding footprint`;
-    const subtitle = activity ? 'Public activity, with a clear scope.'
-        : 'Time spent building. Code shared on GitHub.';
+    const allVisible = github?.visibility === 'all';
+    const activityAllVisible = githubActivity?.visibility === 'all';
+    const subtitle = activity
+        ? !githubActivity ? 'Personal GitHub activity, with source-specific scope.'
+            : activityAllVisible
+            ? 'Personal activity across token-visible GitHub repositories.'
+            : 'Personal activity across public GitHub repositories.'
+        : 'Time spent building. Code measured on GitHub.';
     const merged = github && github.pullRequests > 0
         ? `${(100 * github.mergedPullRequests / github.pullRequests).toFixed(1)}%`
         : github ? '—' : '—';
@@ -224,15 +351,17 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             detail: waka ? `${RANGE_LABELS[snapshot.range]} · includes Other` : 'WakaTime unavailable',
         },
         {
-            value: number(github?.publicRepositories), label: 'PUBLIC REPOSITORIES',
+            value: number(allVisible ? github?.repositories : github?.publicRepositories),
+            label: allVisible ? 'VISIBLE REPOSITORIES' : 'PUBLIC REPOSITORIES',
             detail: github ? `${number(github.analyzedRepositories)} non-forks analyzed` : 'GitHub unavailable',
         },
         {
             value: number(github?.stars), label: 'STARS RECEIVED',
-            detail: 'Owned public non-fork repositories',
+            detail: `Owned ${allVisible ? 'visible' : 'public'} non-fork repositories`,
         },
         {
-            value: merged, label: 'PUBLIC PRS MERGED',
+            value: merged,
+            label: allVisible ? 'VISIBLE PRS MERGED' : 'PUBLIC PRS MERGED',
             detail: github ? `${number(github.mergedPullRequests)} of ${number(github.pullRequests)} · lifetime` : 'GitHub unavailable',
         },
     ];
@@ -248,19 +377,38 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     }).join('');
     let body = '';
     if (activity) {
-        const activityMetrics = [
-            ['Followers', number(github?.followers)],
-            ['Public PRs opened', number(github?.pullRequests)],
-            ['Public issues opened', number(github?.issues)],
-            ['Repository forks', number(github?.forks)],
-        ];
-        body = text(32, 257, 'GITHUB · PUBLIC ACTIVITY', 10, palette.muted, 'letter-spacing="1.2"');
-        body += activityMetrics.map(([name, value], index) => {
-            const x = 32 + index * 211;
-            return text(x, 311, value, 30, palette.fg, 'font-weight="600"')
-                + text(x, 336, name, 12, palette.muted);
+        const scope = !githubActivity ? 'PERSONAL ACTIVITY'
+            : activityAllVisible ? 'TOKEN-VISIBLE ACTIVITY' : 'PUBLIC ACTIVITY';
+        body = text(32, 257, `GITHUB · ${scope}`, 10, palette.muted, 'letter-spacing="1.2"');
+        body += ACTIVITY_METRICS.map((metric, index) => {
+            const x = 32 + index % 4 * 211;
+            const y = 303 + Math.floor(index / 4) * 83;
+            const value = number(metric.source === 'github'
+                ? github?.[metric.key] : githubActivity?.[metric.key]);
+            const label = metric.source === 'github' && !allVisible
+                && ['pullRequests', 'issues'].includes(metric.key)
+                ? 'Public ' + metric.label : metric.label;
+            const size = Math.min(28, Math.floor(184 / (value.length * 0.62)));
+            return '<g><title>' + xml(`${label}: ${value}. ${metric.definition} `
+                + `Period: ${ACTIVITY_PERIODS[metric.period]}.`)
+                + '</title>'
+                + text(x, y, value, size, palette.fg, 'font-weight="600"')
+                + text(x, y + 22, label, 12, palette.fg)
+                + text(x, y + 40, ACTIVITY_PERIODS[metric.period], 10, palette.muted)
+                + '</g>';
         }).join('');
-        body += text(32, 376, 'PR and issue counts are lifetime public authorship; forks are on analyzed repositories.', 11, palette.muted);
+        const periods = githubActivity
+            ? `Lifetime: ${day(githubActivity.allTimeFrom)}–${day(githubActivity.allTimeTo)}. `
+                + `Recent year: ${day(githubActivity.recentFrom)}–${day(githubActivity.recentTo)}.`
+            : 'GitHub activity has no successful snapshot yet. A dash means unavailable, not zero.';
+        body += text(32, 637, periods, 11, palette.muted);
+        body += text(32, 659, 'Reviewed/commented items exclude self-authored items; each distinct item counts once.', 11, palette.muted);
+        body += text(32, 681, !githubActivity
+            ? 'Activity scope unavailable. Existing authorship and repository metrics retain their own source scope.'
+            : activityAllVisible
+            ? 'Public + private aggregates visible to the token, including organizations and external repositories.'
+            : 'Public aggregates, including organizations and external repositories. GitHub eligibility rules apply.',
+        10, palette.muted);
     } else if (empty) {
         body = text(32, 285, 'Waiting for the first successful source snapshot.', 16)
             + text(32, 311, 'Existing saved data will appear here whenever a source is temporarily unavailable.', 12, palette.muted);
@@ -300,6 +448,11 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `<title id="title">${xml(title)}</title>`
         + '<desc id="desc">WakaTime time shares and GitHub repository language byte shares have separate denominators. '
         + xml(`${sourceLine('GitHub', snapshot.github)}. ${sourceLine('WakaTime', snapshot.wakatime)}.`)
+        + (activity ? xml(` ${sourceLine('GitHub activity', activitySource)}. `
+            + `Activity scope: ${githubActivity?.scope ?? 'unavailable'}. `
+            + `Repository byte scope: ${github?.scope ?? 'unavailable'}. `
+            + 'Private repository names are never included. '
+            + ACTIVITY_METRICS.map((metric) => `${metric.label}: ${metric.definition}`).join(' ')) : '')
         + '</desc><style>' + transparentStyles
         + 'text{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif}'
         + '.numeric{font-variant-numeric:tabular-nums}</style>'
@@ -308,7 +461,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + text(32, 32, 'CODESTATS', 10, palette.muted, 'font-weight="700" letter-spacing="2.3"')
         + `<circle cx="726" cy="29" r="3" fill="${statusColor}"/>`
         + text(738, 33, label, 9, statusColor, 'font-weight="600" letter-spacing=".6"')
-        + text(32, 74, username, 30, palette.fg, 'font-weight="650"')
+        + text(32, 74, shortened(username, 44), 30, palette.fg, 'font-weight="650"')
         + text(32, 99, subtitle, 13, palette.muted)
         + metricMarkup
         + `<path d="M32 217H848" stroke="${palette.line}"/>`
@@ -318,7 +471,8 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + text(32, footerY + 44, `WakaTime ${RANGE_LABELS[snapshot.range].toLowerCase()}${rangeEnd}${through}. Other has no GitHub equivalent.`, 10, palette.muted)
         + text(32, footerY + 68, sourceLine('GitHub', snapshot.github), 10, palette.muted)
         + text(32, footerY + 87, sourceLine('WakaTime', snapshot.wakatime), 10, palette.muted)
-        + text(848, footerY + 109, 'CODESTATS / 01', 8, palette.muted, 'text-anchor="end" letter-spacing="1.4"')
+        + (activity ? text(32, footerY + 106, sourceLine('GitHub activity', activitySource), 10, palette.muted) : '')
+        + text(848, footerY + (activity ? 129 : 109), 'CODESTATS / 01', 8, palette.muted, 'text-anchor="end" letter-spacing="1.4"')
         + '</svg>';
 }
 
@@ -381,6 +535,10 @@ letter-spacing:.8px;text-align:left;font-weight:500;padding:12px 8px;background:
 td{padding:10px 8px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
 td:not(:first-child),th:not(:first-child){text-align:right}.dot{width:7px;height:7px;display:inline-block;
 border-radius:50%;margin-right:9px}.detail-note{color:var(--muted);font-size:11px;margin:0 0 12px}
+.metric-definitions{font-size:11px;color:var(--muted);margin:16px 0 0}
+.metric-definitions dt{color:var(--text);font-weight:500;margin-top:10px}
+.metric-definitions dd{margin:2px 0 0}.activity-tables{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+.activity-tables h3{font-size:11px;font-weight:500;margin:14px 0 4px}
 .snippet-head{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:14px 0}
 .snippet-head p{margin:0;color:var(--muted);font-size:11px}.button{border:1px solid #3e6559;background:#1e382f;
 color:#b4ecd2;padding:8px 13px;border-radius:6px;font-size:11px;white-space:nowrap}.button:hover{background:#294a3e}
@@ -397,7 +555,8 @@ footer{margin-top:38px;color:#6e8196;font-size:10px;display:flex;justify-content
 grid-template-columns:1fr 1fr;gap:12px}.config .section-title{grid-column:1/-1;margin-bottom:0}.control{margin:0}
 .source-panel{display:grid;grid-template-columns:1fr 1fr;gap:18px}.source-panel .section-title{grid-column:1/-1;margin-bottom:0}
 .source-state{margin:0;padding:0;border:0}.explain{grid-template-columns:1fr;gap:18px}.local{font-size:8px}
-summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap{max-height:400px}}
+summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap{max-height:400px}
+.activity-tables{grid-template-columns:1fr}.source-panel{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -422,6 +581,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <section class="source-panel"><h2 class="section-title">Source health</h2>
 <div class="source-state"><div class="source-head"><span>GitHub</span><span class="badge" id="github-status">Loading</span></div>
 <small id="github-time">Waiting for source</small><small id="github-error"></small></div>
+<div class="source-state"><div class="source-head"><span>GitHub activity</span><span class="badge" id="githubActivity-status">Loading</span></div>
+<small id="githubActivity-time">Waiting for source</small><small id="githubActivity-error"></small></div>
 <div class="source-state"><div class="source-head"><span>WakaTime</span><span class="badge" id="wakatime-status">Loading</span></div>
 <small id="wakatime-time">Waiting for source</small><small id="wakatime-error"></small></div></section>
 </aside>
@@ -434,6 +595,17 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <div class="detail-body"><p class="detail-note">Each percentage keeps its own denominator. A dash means no comparable data, not zero. Aliases such as Bash → Shell are matched explicitly.</p>
 <div class="table-wrap"><table><thead><tr><th>Language</th><th>Time</th><th>Time share</th><th>Code share</th></tr></thead>
 <tbody id="language-body"></tbody></table></div></div></details>
+<details id="activity-details"><summary>GitHub activity <small id="activity-summary">Waiting for data</small></summary>
+<div class="detail-body"><p class="detail-note" id="activity-source">Waiting for GitHub activity source.</p>
+<p class="detail-note" id="activity-scope">Personal contributions include organizations and external repositories. Private repository names are never shown.</p>
+<p class="detail-note" id="activity-periods">A dash means unavailable, not zero. GitHub activity periods are independent of the WakaTime range.</p>
+<div class="activity-tables"><section><h3>Personal activity</h3><div class="table-wrap"><table>
+<thead><tr><th>Metric</th><th>Count</th><th>Period</th></tr></thead><tbody id="activity-body"></tbody></table></div></section>
+<section><h3>Contribution calendar by year</h3><div class="table-wrap"><table>
+<thead><tr><th>Year</th><th>Contributions</th></tr></thead><tbody id="contribution-years"></tbody></table></div></section></div>
+<details><summary>How these counts are defined</summary><div class="detail-body">
+<p class="detail-note">These counts describe different actions and periods; they are not added together. GitHub search, contribution eligibility, token permissions, and organization access can limit coverage. Language bytes remain a separate owned non-fork repository measure.</p>
+<dl class="metric-definitions" id="activity-definitions"></dl></div></details></div></details>
 <details id="readme-details"><summary>Add to your GitHub README <small>Native expandable sections</small></summary>
 <div class="detail-body"><label for="public-url">Public Worker URL</label>
 <input id="public-url" type="url" value="https://YOUR-WORKER.workers.dev" aria-describedby="url-note">
@@ -443,7 +615,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <div><b>Freshness, made visible</b><p>Each source keeps its last successful snapshot. If an API is down, saved numbers remain visible with their own timestamp and a stale label.</p></div>
 <div><b>Made for your README</b><p>A single SVG works as a GitHub image. Native details sections reveal language and activity cards. The interactive controls live on this preview page.</p></div></section>
 </main></div>
-<footer><span>CODESTATS · BUILT ON CLOUDFLARE WORKERS</span><span>Public aggregates. Independently refreshed.</span></footer>
+<footer><span>CODESTATS · NODE.JS + CLOUDFLARE WORKERS</span><span id="footer-scope">Aggregates. Independently refreshed.</span></footer>
 </div>
 <script>
 (() => {
@@ -455,6 +627,14 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
     const aliases = ${JSON.stringify(ALIASES)};
     const colors = ${JSON.stringify(COLORS)};
+    const activityMetrics = ${JSON.stringify(ACTIVITY_METRICS)};
+    const activityPeriods = ${JSON.stringify(ACTIVITY_PERIODS)};
+    const activitySource = () => snapshot.githubActivity || {
+        data: null, status: 'unavailable', lastSuccessAt: null, lastError: null,
+    };
+    const count = (value) => Number.isFinite(value) && value >= 0 ? fmt.format(value) : '—';
+    const day = (value) => value && !isNaN(Date.parse(value))
+        ? new Date(value).toISOString().slice(0, 10) : 'date unavailable';
     const normalize = (name) => aliases[name.trim().toLowerCase()] || name.trim().toLowerCase();
     const safeColor = (color, name) => /^#[0-9a-f]{6}$/i.test(color || '') ? color : colors[normalize(name)] || '#9ebcf0';
     const duration = (seconds) => fmt.format(Math.floor(seconds / 3600)) + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
@@ -512,6 +692,54 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
             $('language-body').append(tr);
         }
     }
+    function updateActivity() {
+        const source = activitySource();
+        const data = source.data;
+        const all = data && data.visibility === 'all';
+        const state = source.status === 'fresh' ? 'fresh'
+            : data ? source.lastError ? 'saved data · refresh unavailable'
+                : 'saved data · refresh due' : 'unavailable';
+        $('activity-summary').textContent = state;
+        $('activity-source').textContent = 'GitHub activity · ' + state + ' · ' + date(source.lastSuccessAt)
+            + '. Authorship and repository metrics use the separate GitHub source timestamp.';
+        $('activity-scope').textContent = (!data
+            ? 'GitHub activity scope is unavailable. Organization and external-repository coverage depends on GitHub access. '
+            : all
+            ? 'Public + private aggregates visible to the token, including organizations and external repositories. '
+            : 'Public aggregates, including organizations and external repositories. ')
+            + 'Private repository names are never shown.' + (data ? ' Source scope: ' + data.scope : '');
+        $('activity-periods').textContent = (data
+            ? 'Lifetime: ' + day(data.allTimeFrom) + '–' + day(data.allTimeTo)
+                + '. Recent year: ' + day(data.recentFrom) + '–' + day(data.recentTo) + '. '
+            : '') + 'A dash means unavailable, not zero. GitHub activity periods are independent of the WakaTime range.';
+        $('activity-body').replaceChildren();
+        $('activity-definitions').replaceChildren();
+        for (const metric of activityMetrics) {
+            const metricData = metric.source === 'github' ? snapshot.github.data : data;
+            const tr = document.createElement('tr');
+            for (const value of [metric.label, count(metricData ? metricData[metric.key] : undefined), activityPeriods[metric.period]]) {
+                const td = document.createElement('td'); td.textContent = value; tr.append(td);
+            }
+            $('activity-body').append(tr);
+            const dt = document.createElement('dt'); dt.textContent = metric.label + ' · ' + activityPeriods[metric.period];
+            const dd = document.createElement('dd'); dd.textContent = metric.definition;
+            $('activity-definitions').append(dt, dd);
+        }
+        $('contribution-years').replaceChildren();
+        for (const row of data ? data.contributionsByYear.slice().sort((a, b) => b.year - a.year) : []) {
+            const tr = document.createElement('tr');
+            const year = Number.isInteger(row.year) && row.year >= 0 ? String(row.year) : '—';
+            for (const value of [year, count(row.contributions)]) {
+                const td = document.createElement('td'); td.textContent = value; tr.append(td);
+            }
+            $('contribution-years').append(tr);
+        }
+        if (!data || !data.contributionsByYear.length) {
+            const tr = document.createElement('tr'); const td = document.createElement('td');
+            td.colSpan = 2; td.textContent = data ? 'No calendar years returned.' : 'No successful activity snapshot yet.';
+            tr.append(td); $('contribution-years').append(tr);
+        }
+    }
     function updateSnippet() {
         let base = $('public-url').value.trim().replace(/\/$/, '');
         try {
@@ -530,8 +758,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         $('snippet').textContent = picture('overview', 'Coding time and GitHub language statistics')
             + '\n\n<details>\n<summary>Language detail · top 20</summary>\n\n'
             + picture('languages', 'Detailed time and code language shares') + '\n\n</details>'
-            + '\n\n<details>\n<summary>Public GitHub activity</summary>\n\n'
-            + picture('activity', 'Public GitHub activity') + '\n\n</details>';
+            + '\n\n<details>\n<summary>GitHub activity</summary>\n\n'
+            + picture('activity', 'GitHub activity with lifetime and recent-year periods') + '\n\n</details>';
     }
     function updateCard() {
         const image = $('card');
@@ -542,8 +770,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         updateTable(); updateSnippet();
     }
     function updateSources() {
-        for (const name of ['github', 'wakatime']) {
-            const source = snapshot[name];
+        for (const name of ['github', 'githubActivity', 'wakatime']) {
+            const source = name === 'githubActivity' ? activitySource() : snapshot[name];
             $(name + '-status').textContent = source.status;
             $(name + '-status').className = 'badge ' + source.status;
             $(name + '-time').textContent = date(source.lastSuccessAt);
@@ -552,7 +780,9 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         const github = snapshot.github.data;
         const waka = snapshot.wakatime.data;
         $('identity').textContent = '@' + (github ? github.username : waka ? waka.username : 'profile');
-        let note = 'WakaTime time share includes Other. GitHub code share uses owned public non-fork repository bytes.';
+        const all = github && github.visibility === 'all';
+        let note = 'WakaTime time share includes Other. GitHub code share uses owned '
+            + (all ? 'token-visible' : 'public') + ' non-fork repository bytes.';
         if (waka && waka.end) note += ' WakaTime through ' + waka.end.slice(0, 10) + '.';
         else if (waka && waka.rangeLabel) note += ' WakaTime: ' + waka.rangeLabel + '.';
         if (waka && !waka.includesToday) note += ' Today is excluded by the source.';
@@ -561,6 +791,9 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         if (staleSources.some((source) => source.lastError)) note += ' Saved data remains visible after an unsuccessful source refresh.';
         else if (staleSources.length) note += ' Saved data remains visible while a refresh is due.';
         $('range-note').textContent = note;
+        $('footer-scope').textContent = all || activitySource().data && activitySource().data.visibility === 'all'
+            ? 'Public + private aggregates. Independently refreshed.' : 'Public aggregates. Independently refreshed.';
+        updateActivity();
     }
     async function load() {
         const current = ++generation;

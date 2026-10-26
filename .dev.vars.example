@@ -1,0 +1,5 @@
+# Local Cloudflare Worker secrets; copy to ignored .dev.vars.
+# Use Wrangler/dashboard secrets for production; never put keys in vars.
+GITHUB_TOKEN=replace_with_a_server_side_github_token
+# Optional WakaTime read-stats OAuth token (not a heartbeat ingestion key).
+WAKATIME_TOKEN=

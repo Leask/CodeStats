@@ -44,6 +44,32 @@ function snapshot(): StatsSnapshot {
     };
 }
 
+function activitySnapshot(): StatsSnapshot {
+    const data = snapshot();
+    data.githubActivity = {
+        status: 'fresh', lastSuccessAt: '2026-10-25T14:00:00Z',
+        lastAttemptAt: '2026-10-25T14:00:00Z', lastError: null, retryAt: null,
+        data: {
+            username: 'Leask', visibility: 'all',
+            scope: 'Token-visible personal contributions across organizations',
+            commits: 98765, pullRequestsCommented: 321,
+            pullRequestsReviewed: 432, issuesCommented: 543,
+            discussionsStarted: 21, discussionsAnswered: 12,
+            reviewContributions: 654, contributedRepositories: 87,
+            allTimeContributedRepositories: 234, allTimeContributions: 456789,
+            contributionsByYear: [
+                { year: 2025, contributions: 12345 },
+                { year: 2026, contributions: 23456 },
+            ],
+            recentFrom: '2025-10-25T17:00:00Z',
+            recentTo: '2026-10-25T17:00:00Z',
+            allTimeFrom: '2010-03-01T00:00:00Z',
+            allTimeTo: '2026-10-25T17:00:00Z', organizationCount: 4,
+        },
+    };
+    return data;
+}
+
 describe('language comparison', () => {
     it('uses explicit aliases without inventing a common denominator', () => {
         const rows = joinLanguages(snapshot());
@@ -189,5 +215,136 @@ describe('safe README SVG', () => {
         expect(html).toContain("document.createTextNode(row.name)");
         expect(html).not.toContain('.innerHTML');
         expect(html).not.toContain('https://cdn.');
+    });
+});
+
+describe('GitHub personal activity', () => {
+    it('shows expanded aggregates with independent periods and source time', () => {
+        const svg = renderCard(activitySnapshot(), { ...options, view: 'activity' });
+        for (const value of [
+            '98,765', '456,789', '321', '432', '543', '654', '87', '234',
+        ]) {
+            expect(svg).toContain(`>${value}</text>`);
+        }
+        for (const label of [
+            'Commits indexed', 'Calendar contributions', 'PRs reviewed',
+            'PRs commented on', 'Issues commented on', 'Discussions started',
+            'Accepted answers', 'Review contributions', 'Repos contributed to',
+        ]) {
+            expect(svg).toContain(label);
+        }
+        expect(svg).toContain('Lifetime · GitHub index');
+        expect(svg).toContain('Lifetime · calendar');
+        expect(svg).toContain('Lifetime: 2010-03-01–2026-10-25. Recent year: 2025-10-25–2026-10-25.');
+        expect(svg).toContain('GitHub activity · fresh · 2026-10-25 14:00 UTC');
+        expect(svg).toContain('TOKEN-VISIBLE ACTIVITY');
+        expect(svg).toContain('Public + private aggregates visible to the token');
+        expect(svg).toContain('excluding their own pull requests');
+        expect(svg).toContain('not a commit count');
+        expect(svg).toContain('on default branches');
+        expect(svg).toContain('review-only repositories are excluded');
+        expect(svg).toContain('GitHub recent-year repositoriesContributedTo count');
+        expect(svg).toContain('FRESH SNAPSHOT');
+    });
+
+    it('keeps missing activity unknown and keeps existing views fresh', () => {
+        const data = snapshot();
+        const svg = renderCard(data, { ...options, view: 'activity' });
+        expect(svg).toContain('PARTIAL DATA');
+        expect(svg).toContain('Commits indexed: —.');
+        expect(svg).toContain('Calendar contributions: —.');
+        expect(svg).toContain('GitHub activity · unavailable · no successful snapshot yet');
+        expect(svg).toContain('Public PRs opened: 80.');
+        expect(svg).toContain('Activity scope unavailable.');
+        for (const view of ['overview', 'languages'] as const) {
+            const existing = renderCard(data, { ...options, view });
+            expect(existing).toContain('FRESH SNAPSHOT');
+            expect(existing).not.toContain('GitHub activity · unavailable');
+            expect(existing).toContain('WAKATIME · ALL TIME');
+        }
+    });
+
+    it('retains stale activity with its own warning without aging other views', () => {
+        const data = activitySnapshot();
+        data.githubActivity!.status = 'stale';
+        data.githubActivity!.lastError = 'activity API timeout';
+        const svg = renderCard(data, { ...options, view: 'activity' });
+        expect(svg).toContain('SAVED SNAPSHOT');
+        expect(svg).toContain('>98,765</text>');
+        expect(svg).toContain('GitHub activity · saved data · refresh unavailable · 2026-10-25 14:00 UTC');
+        expect(renderCard(data, options)).toContain('FRESH SNAPSHOT');
+        data.githubActivity!.data = null;
+        data.githubActivity!.status = 'unavailable';
+        const unavailable = renderCard(data, { ...options, view: 'activity' });
+        expect(unavailable).toContain('PARTIAL DATA');
+        expect(unavailable).toContain('Commits indexed: —.');
+    });
+
+    it('keeps activity visible when the other sources are unavailable', () => {
+        const data = activitySnapshot();
+        data.github.data = null;
+        data.github.status = 'unavailable';
+        data.wakatime.data = null;
+        data.wakatime.status = 'unavailable';
+        const svg = renderCard(data, { ...options, view: 'activity' });
+        expect(svg).toContain('PARTIAL DATA');
+        expect(svg).toContain('>Leask</text>');
+        expect(svg).toContain('>98,765</text>');
+        expect(svg).not.toContain('WAITING FOR DATA');
+    });
+
+    it('uses visible repository labels only for explicitly expanded scope', () => {
+        const data = activitySnapshot();
+        data.github.data!.visibility = 'all';
+        data.github.data!.repositories = 240;
+        data.github.data!.privateRepositories = 42;
+        data.github.data!.scope = 'Owned token-visible non-fork repositories';
+        const svg = renderCard(data, { ...options, view: 'activity' });
+        expect(svg).toContain('VISIBLE REPOSITORIES');
+        expect(svg).toContain('>240</text>');
+        expect(svg).toContain('VISIBLE PRS MERGED');
+        expect(svg).toContain('Owned visible non-fork repositories');
+        expect(svg).not.toContain('PUBLIC REPOSITORIES');
+        expect(svg).not.toContain('Public PRs opened');
+        expect(renderCard(snapshot(), options)).toContain('PUBLIC REPOSITORIES');
+        data.github.data!.repositories = undefined;
+        expect(renderCard(data, options)).not.toContain('>198</text>');
+    });
+
+    it('escapes activity scope and keeps large and invalid metrics within bounds', () => {
+        const data = activitySnapshot();
+        data.githubActivity!.data!.scope = '<script>private-repo</script>';
+        data.githubActivity!.data!.commits = Number.MAX_SAFE_INTEGER;
+        data.githubActivity!.data!.pullRequestsCommented = Number.NaN;
+        data.githubActivity!.data!.issuesCommented = -1;
+        const svg = renderCard(data, { ...options, view: 'activity' });
+        expect(svg).toContain('&lt;script&gt;private-repo&lt;/script&gt;');
+        expect(svg).not.toContain('<script>');
+        expect(svg).not.toContain('NaN');
+        expect(svg).toContain('PRs commented on: —.');
+        expect(svg).toContain('Issues commented on: —.');
+        expect(svg).toContain('font-size="13"');
+        const height = Number(svg.match(/height="(\d+)"/)![1]);
+        for (const match of svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"/g)) {
+            expect(Number(match[1])).toBeLessThanOrEqual(848);
+            expect(Number(match[2])).toBeLessThan(height);
+        }
+        expect(svg.match(/<g><title>/g)).toHaveLength(14);
+    });
+
+    it('provides expandable activity, yearly totals, definitions and source health', () => {
+        const html = renderPage();
+        expect(html).toContain('<details id="activity-details">');
+        expect(html).toContain('id="githubActivity-status"');
+        expect(html).toContain('id="contribution-years"');
+        expect(html).toContain('How these counts are defined');
+        expect(html).toContain('GitHub activity periods are independent of the WakaTime range.');
+        expect(html).toContain("td.textContent = value");
+        expect(html).toContain("dd.textContent = metric.definition");
+        expect(html).not.toContain('.innerHTML');
+        expect(html).toContain("picture('overview'");
+        expect(html).toContain("picture('languages'");
+        expect(html).toContain("picture('activity'");
+        expect(html).toContain('<option value="all_time">All time</option>');
     });
 });

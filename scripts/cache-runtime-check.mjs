@@ -15,6 +15,9 @@ await build({
 });
 let failing = false;
 let requests = 0;
+const githubResponse = value => Response.json(value, {
+    headers: { 'x-oauth-scopes': 'repo, user, admin:org' },
+});
 const outboundService = async request => {
     requests++;
     const url = new URL(request.url);
@@ -35,17 +38,53 @@ const outboundService = async request => {
             ],
         } });
     }
+    if (url.pathname.startsWith('/search/')) {
+        return githubResponse({ total_count: 12, incomplete_results: false });
+    }
     const { query } = await request.json();
+    if (query.includes('query ActivityProfile')) {
+        return githubResponse({ data: {
+            viewer: { id: 'user-test', login: 'test',
+                organizations: { totalCount: 2 } },
+            user: { id: 'user-test', login: 'test',
+                createdAt: '2025-01-02T00:00:00Z',
+                repositoryDiscussions: { totalCount: 2 },
+                repositoryDiscussionComments: { totalCount: 1 },
+                contributionsCollection: { contributionYears: [2025, 2026] },
+                recent: { totalPullRequestReviewContributions: 3 },
+                repositoriesContributedTo: { totalCount: 1 } },
+        } });
+    }
+    if (query.includes('query ActivityCalendar')
+        || query.includes('query ActivityRepositories')) {
+        const values = [...query.matchAll(/range_(\d+):/g)].map(match => [
+            'range_' + match[1], query.includes('query ActivityCalendar') ? {
+                contributionCalendar: { totalContributions: 50 },
+                restrictedContributionsCount: 0,
+            } : {
+                commitContributionsByRepository: [{
+                    repository: { id: 'external-repo', owner: { id: 'other' } },
+                }],
+                issueContributionsByRepository: [],
+                pullRequestContributionsByRepository: [],
+                repositoryContributions: { totalCount: 0, nodes: [],
+                    pageInfo: { hasNextPage: false, endCursor: null } },
+            },
+        ]);
+        return githubResponse({ data: { user: Object.fromEntries(values) } });
+    }
     if (query.includes('query Profile')) {
-        return Response.json({ data: {
+        return githubResponse({ data: {
             user: {
                 login: 'test', name: 'Test', followers: { totalCount: 2 },
                 publicRepositories: { totalCount: 1 },
+                privateRepositories: { totalCount: 1 },
+                repositories: { totalCount: 2 },
             },
             prs: { issueCount: 4 }, merged: { issueCount: 3 }, issues: { issueCount: 2 },
         } });
     }
-    return Response.json({ data: { user: { repositories: {
+    return githubResponse({ data: { user: { login: 'test', repositories: {
         totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null },
         nodes: [{
             id: 'test-repository', isPrivate: false, isFork: false,
@@ -67,6 +106,7 @@ const create = (login = 'test') => new Miniflare({
         bindings: {
             GITHUB_USERNAME: login, WAKATIME_USERNAME: 'test',
             GITHUB_TOKEN: 'isolated-test-token-not-a-secret',
+            GITHUB_VISIBILITY: 'all',
             DEFAULT_RANGE: 'all_time', FRESH_SECONDS: '60', RETRY_SECONDS: '900',
         },
     }),
@@ -78,7 +118,8 @@ let mf = create();
 try {
     const first = await stats(mf);
     checks.realWorkerdFresh = first.github.status === 'fresh'
-        && first.wakatime.status === 'fresh';
+        && first.wakatime.status === 'fresh'
+        && first.githubActivity.status === 'fresh';
     assert.ok(checks.realWorkerdFresh);
     const binding = (await mf.getBindings()).SNAPSHOTS;
     const id = binding.idFromName('public-v1:test:test');
@@ -86,17 +127,22 @@ try {
     failing = true;
     const stale = await stats(mf);
     checks.expiredSnapshotServed = stale.github.status === 'stale'
-        && stale.wakatime.status === 'stale';
+        && stale.wakatime.status === 'stale'
+        && stale.githubActivity.status === 'stale';
     let failed;
     for (let attempt = 0; attempt < 30; attempt++) {
         failed = await stats(mf);
-        if (failed.github.lastError && failed.wakatime.lastError) break;
+        if (failed.github.lastError && failed.wakatime.lastError
+            && failed.githubActivity.lastError) break;
         await new Promise(resolve => setTimeout(resolve, 20));
     }
     checks.lastGoodRetainedOn503 = failed.github.data.totalBytes === 1000
         && failed.wakatime.data.totalSeconds === 100
         && failed.github.lastSuccessAt === '2020-01-01T00:00:00.000Z'
         && failed.wakatime.lastSuccessAt === '2020-01-01T00:00:00.000Z';
+    checks.activityLastGoodRetained = failed.githubActivity.data.commits === 12
+        && failed.githubActivity.data.allTimeContributions === 100
+        && failed.githubActivity.lastSuccessAt === '2020-01-01T00:00:00.000Z';
     checks.failureRecorded = Boolean(failed.github.lastError && failed.wakatime.lastError);
     const calls = requests;
     await stats(mf);
@@ -114,13 +160,18 @@ try {
         === JSON.stringify(first.github.data)
         && JSON.stringify(restart.wakatime.data) === JSON.stringify(first.wakatime.data)
         && restart.github.status === 'stale'
-        && restart.github.lastSuccessAt === failed.github.lastSuccessAt;
+        && restart.github.lastSuccessAt === failed.github.lastSuccessAt
+        && JSON.stringify(restart.githubActivity.data)
+            === JSON.stringify(first.githubActivity.data)
+        && restart.githubActivity.status === 'stale';
     checks.restartPreservesCooldown = requests === calls;
     await mf.dispose();
     mf = create('uncached');
     const cold = await stats(mf);
     checks.noMadeUpColdData = cold.github.data === null && cold.wakatime.data === null
-        && cold.github.status === 'unavailable' && cold.github.lastSuccessAt === null;
+        && cold.github.status === 'unavailable' && cold.github.lastSuccessAt === null
+        && cold.githubActivity.data === null
+        && cold.githubActivity.lastSuccessAt === null;
     assert.ok(Object.values(checks).every(Boolean), JSON.stringify(checks));
     const result = {
         checkedAt: new Date().toISOString(), checks,

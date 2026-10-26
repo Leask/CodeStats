@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { SnapshotCache } from '../src/cache';
+import { UpstreamError } from '../src/errors';
 import type { Storage } from '../src/cache';
-import type { GitHubData, WakaData } from '../src/types';
+import type { GitHubActivityData, GitHubData, WakaData } from '../src/types';
 
 class MemoryStorage implements Storage {
     values = new Map<string, unknown>();
@@ -28,6 +29,18 @@ const waka: WakaData = {
         { name: 'TypeScript', seconds: 70, percent: 70 },
         { name: 'Other', seconds: 30, percent: 30 },
     ],
+};
+
+const activity: GitHubActivityData = {
+    username: 'test', visibility: 'all', scope: 'Token-visible personal activity',
+    commits: 10, pullRequestsCommented: 4, pullRequestsReviewed: 2,
+    issuesCommented: 3, discussionsStarted: 1, discussionsAnswered: 0,
+    reviewContributions: 2, contributedRepositories: 4,
+    allTimeContributedRepositories: 6, allTimeContributions: 20,
+    contributionsByYear: [{ year: 2026, contributions: 20 }],
+    recentFrom: '2025-10-25T00:00:00Z', recentTo: '2026-10-25T00:00:00Z',
+    allTimeFrom: '2026-01-01T00:00:00Z', allTimeTo: '2026-10-25T00:00:00Z',
+    organizationCount: 2,
 };
 
 function harness() {
@@ -64,6 +77,76 @@ function harness() {
 }
 
 describe('durable last-good snapshots', () => {
+    it('isolates private/public GitHub records while preserving WakaTime', async () => {
+        const h = harness();
+        await h.engine.read('all_time', h.wait);
+        const all = new SnapshotCache(h.storage, {
+            ...h.loaders,
+            github: async () => ({ ...github, stars: 99, visibility: 'all' }),
+            githubActivity: async () => activity,
+        }, { ...h.policy, githubKey: 'github:all-v1',
+            githubActivityKey: 'github:activity:all:v1' });
+        const expanded = await all.read('all_time', h.wait);
+        expect(expanded.github.data?.stars).toBe(99);
+        expect(expanded.githubActivity?.data).toEqual(activity);
+        expect(expanded.wakatime.data).toEqual(waka);
+        const publicAgain = await h.engine.read('all_time', h.wait);
+        expect(publicAgain.github.data?.stars).toBe(8);
+        expect(publicAgain.githubActivity).toBeUndefined();
+        expect(h.calls()).toEqual([1, 1]);
+    });
+
+    it('retains independent activity data and server cooldown across restart', async () => {
+        const h = harness();
+        let failing = false;
+        let calls = 0;
+        const loaders = {
+            ...h.loaders,
+            githubActivity: async () => {
+                calls++;
+                if (failing) {
+                    throw new UpstreamError('GitHub rate limited.', 3600);
+                }
+                return activity;
+            },
+        };
+        const engine = new SnapshotCache(h.storage, loaders, h.policy);
+        const first = await engine.read('all_time', h.wait);
+        h.advance(61);
+        failing = true;
+        await engine.read('all_time', h.wait);
+        await h.flush();
+        const restarted = new SnapshotCache(h.storage, loaders, h.policy);
+        const failed = await restarted.read('all_time', h.wait);
+        expect(failed.githubActivity?.data).toEqual(activity);
+        expect(failed.githubActivity?.lastSuccessAt)
+            .toBe(first.githubActivity?.lastSuccessAt);
+        expect(failed.githubActivity?.lastError).toContain('rate limited');
+        expect(Date.parse(failed.githubActivity!.retryAt!))
+            .toBe(Date.parse(failed.generatedAt) + 3600 * 1000);
+        expect(failed.github.status).toBe('fresh');
+        expect(failed.wakatime.status).toBe('fresh');
+        h.advance(901);
+        await restarted.read('all_time', h.wait);
+        expect(calls).toBe(2);
+        await h.flush();
+    });
+
+    it('does not invent activity zeros on a cold capability failure', async () => {
+        const h = harness();
+        const engine = new SnapshotCache(h.storage, {
+            ...h.loaders,
+            githubActivity: async () => { throw new Error('private-secret'); },
+        }, h.policy);
+        const result = await engine.read('all_time', h.wait);
+        expect(result.githubActivity?.data).toBeNull();
+        expect(result.githubActivity?.status).toBe('unavailable');
+        expect(result.githubActivity?.lastError).toContain('GitHub');
+        expect(result.githubActivity?.lastError).not.toContain('private-secret');
+        expect(result.github.status).toBe('fresh');
+        expect(result.wakatime.status).toBe('fresh');
+    });
+
     it('loads once, then serves fresh data without another upstream call', async () => {
         const h = harness();
         const first = await h.engine.read('all_time', h.wait);

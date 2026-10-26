@@ -1,23 +1,27 @@
 import { UpstreamError } from './errors';
+import { count, createGitHubClient, object, page, text } from './github-api';
 import type { Env, Fetcher, GitHubData } from './types';
 
-const ENDPOINT = 'https://api.github.com/graphql';
-const REFRESH_TIMEOUT_MS = 20_000;
-const MAX_PAGES = 128;
 const PROFILE = `query Profile($login: String!, $prs: String!,
-    $merged: String!, $issues: String!) {
+    $merged: String!, $issues: String!, $all: Boolean!) {
     user(login: $login) {
         login name followers { totalCount }
         publicRepositories: repositories(first: 1, privacy: PUBLIC,
             ownerAffiliations: [OWNER]) { totalCount }
+        privateRepositories: repositories(first: 1, privacy: PRIVATE,
+            ownerAffiliations: [OWNER]) @include(if: $all) { totalCount }
+        repositories(first: 1, ownerAffiliations: [OWNER])
+            @include(if: $all) { totalCount }
     }
     prs: search(query: $prs, type: ISSUE, first: 1) { issueCount }
     merged: search(query: $merged, type: ISSUE, first: 1) { issueCount }
     issues: search(query: $issues, type: ISSUE, first: 1) { issueCount }
 }`;
-const REPOSITORIES = `query Repositories($login: String!, $after: String) {
+const REPOSITORIES = `query Repositories($login: String!, $after: String,
+    $privacy: RepositoryPrivacy) {
     user(login: $login) {
-        repositories(first: 50, after: $after, privacy: PUBLIC,
+        login
+        repositories(first: 50, after: $after, privacy: $privacy,
             ownerAffiliations: [OWNER], isFork: false,
             orderBy: {field: NAME, direction: ASC}) {
             totalCount pageInfo { hasNextPage endCursor }
@@ -44,107 +48,38 @@ const MORE_LANGUAGES = `query Languages($id: ID!, $after: String!) {
     }
 }`;
 
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown): JsonObject {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        throw new UpstreamError('GitHub returned incomplete data.');
-    }
-    return value as JsonObject;
-}
-
-function text(value: unknown): string {
-    if (typeof value !== 'string' || !value || value.length > 256) {
-        throw new UpstreamError('GitHub returned invalid text.');
-    }
-    return value;
-}
-
-function count(value: unknown): number {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value)
-        || value < 0) {
-        throw new UpstreamError('GitHub returned an invalid count.');
-    }
-    return value;
-}
-
-function page(connection: JsonObject): string | null {
-    const info = object(connection.pageInfo);
-    if (typeof info.hasNextPage !== 'boolean') {
-        throw new UpstreamError('GitHub pagination is incomplete.');
-    }
-    return info.hasNextPage ? text(info.endCursor) : null;
-}
-
-/** Complete public, owned, non-fork repository bytes; no private names leave here. */
+/** Complete owned non-fork bytes without exposing repository identities. */
 export async function fetchGitHub(
-    env: Pick<Env, 'GITHUB_USERNAME' | 'GITHUB_TOKEN'>,
+    env: Pick<Env, 'GITHUB_USERNAME' | 'GITHUB_TOKEN' | 'GITHUB_VISIBILITY'>,
     fetcher: Fetcher = fetch,
 ): Promise<GitHubData> {
-    const login = env.GITHUB_USERNAME;
-    if (!/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(login)) {
-        throw new UpstreamError('GitHub username is invalid.');
+    const visibility = env.GITHUB_VISIBILITY ?? 'public';
+    if (visibility !== 'public' && visibility !== 'all') {
+        throw new UpstreamError('GitHub visibility is invalid.');
     }
-    if (!env.GITHUB_TOKEN?.trim()) {
-        throw new UpstreamError('Configure a server-side GITHUB_TOKEN for GitHub stats.');
-    }
-    const signal = AbortSignal.timeout(REFRESH_TIMEOUT_MS);
-    let requests = 0;
-    const query = async (
-        document: string,
-        variables: Record<string, unknown>,
-    ): Promise<JsonObject> => {
-        if (++requests > MAX_PAGES) {
-            throw new UpstreamError('GitHub pagination budget exceeded; snapshot retained.');
-        }
-        let response: Response;
-        try {
-            response = await fetcher(ENDPOINT, {
-                method: 'POST',
-                redirect: 'manual',
-                signal,
-                headers: {
-                    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-                    'User-Agent': 'CodeStats',
-                    Accept: 'application/vnd.github+json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ query: document, variables }),
-            });
-        } catch {
-            throw new UpstreamError('GitHub request failed or timed out.');
-        }
-        if (!response.ok) {
-            throw new UpstreamError(`GitHub API returned HTTP ${response.status}.`);
-        }
-        let envelope: JsonObject;
-        try {
-            envelope = object(await response.json());
-        } catch {
-            throw new UpstreamError('GitHub returned invalid JSON.');
-        }
-        if (envelope.errors !== undefined) {
-            if (!Array.isArray(envelope.errors) || envelope.errors.length > 0) {
-                throw new UpstreamError('GitHub GraphQL returned partial or failed data.');
-            }
-        }
-        return object(envelope.data);
-    };
-
-    const searchBase = `author:${login} is:public`;
+    const all = visibility === 'all';
+    const { login, query } = createGitHubClient(env, fetcher, {
+        requiredScopes: all ? ['repo'] : [],
+    });
+    const searchBase = `author:${login}${all ? '' : ' is:public'}`;
     const profile = await query(PROFILE, {
-        login,
+        login, all,
         prs: `${searchBase} is:pr`,
         merged: `${searchBase} is:pr is:merged`,
         issues: `${searchBase} is:issue`,
     });
     const user = object(profile.user);
+    const username = text(user.login);
+    if (username.toLowerCase() !== login.toLowerCase()) {
+        throw new UpstreamError('GitHub profile identity changed.');
+    }
     const result: GitHubData = {
-        username: text(user.login),
+        username,
         name: typeof user.name === 'string' && user.name.trim()
             ? text(user.name) : text(user.login),
         followers: count(object(user.followers).totalCount),
         publicRepositories: count(object(user.publicRepositories).totalCount),
+        visibility,
         analyzedRepositories: 0,
         stars: 0,
         forks: 0,
@@ -153,21 +88,42 @@ export async function fetchGitHub(
         issues: count(object(profile.issues).issueCount),
         languages: [],
         totalBytes: 0,
-        scope: 'All owned public non-fork repositories, including archived; '
-            + 'language share by bytes. PRs and issues: public, lifetime, '
-            + 'authored across GitHub. Public repository count includes forks.',
+        scope: all
+            ? 'All token-visible owned non-fork repositories, including archived; '
+                + 'language share by bytes. PRs and issues: token-visible, '
+                + 'lifetime, authored across GitHub, including organizations '
+                + 'and external repositories. Repository counts include forks.'
+            : 'All owned public non-fork repositories, including archived; '
+                + 'language share by bytes. PRs and issues: public, lifetime, '
+                + 'authored across GitHub. Public repository count includes forks.',
     };
+    if (all) {
+        result.repositories = count(object(user.repositories).totalCount);
+        result.privateRepositories = count(object(user.privateRepositories).totalCount);
+        if (result.publicRepositories + result.privateRepositories
+            !== result.repositories) {
+            throw new UpstreamError('GitHub repository totals are inconsistent.');
+        }
+    }
     if (result.mergedPullRequests > result.pullRequests) {
         throw new UpstreamError('GitHub returned inconsistent pull request counts.');
     }
     const languages = new Map<string, { bytes: number; color: string }>();
     const repositoryIds = new Set<string>();
     const repositoryCursors = new Set<string>();
+    let privateRepositories = 0;
     let after: string | null = null;
     let expectedRepositories: number | null = null;
     do {
-        const data = await query(REPOSITORIES, { login, after });
-        const connection = object(object(data.user).repositories);
+        const data = await query(REPOSITORIES, {
+            login, after, privacy: all ? null : 'PUBLIC',
+        });
+        const owner = object(data.user);
+        if ((all || owner.login !== undefined)
+            && text(owner.login).toLowerCase() !== login.toLowerCase()) {
+            throw new UpstreamError('GitHub repository owner identity changed.');
+        }
+        const connection = object(owner.repositories);
         const expected = count(connection.totalCount);
         if (expectedRepositories !== null && expected !== expectedRepositories) {
             throw new UpstreamError('GitHub repository inventory changed during refresh.');
@@ -179,13 +135,15 @@ export async function fetchGitHub(
         for (const value of connection.nodes) {
             const repo = object(value);
             const id = text(repo.id);
-            if (repositoryIds.has(id) || repo.isPrivate !== false
+            if (repositoryIds.has(id) || typeof repo.isPrivate !== 'boolean'
+                || (!all && repo.isPrivate)
                 || repo.isFork !== false) {
                 throw new UpstreamError('GitHub repository scope or pagination changed.');
             }
             repositoryIds.add(id);
-            result.stars += count(repo.stargazerCount);
-            result.forks += count(repo.forkCount);
+            privateRepositories += Number(repo.isPrivate);
+            result.stars = count(result.stars + count(repo.stargazerCount));
+            result.forks = count(result.forks + count(repo.forkCount));
             let languageConnection = object(repo.languages);
             const expectedBytes = count(languageConnection.totalSize);
             let repositoryBytes = 0;
@@ -226,7 +184,7 @@ export async function fetchGitHub(
                 const more = object((await query(MORE_LANGUAGES, {
                     id, after: next,
                 })).node);
-                if (more.isPrivate !== false || more.isFork !== false) {
+                if (more.isPrivate !== repo.isPrivate || more.isFork !== false) {
                     throw new UpstreamError('GitHub repository visibility changed.');
                 }
                 languageConnection = object(more.languages);
@@ -245,6 +203,10 @@ export async function fetchGitHub(
     } while (after !== null);
     if (repositoryIds.size !== expectedRepositories) {
         throw new UpstreamError('GitHub repository pagination is incomplete.');
+    }
+    if (all && (privateRepositories > (result.privateRepositories ?? 0)
+        || repositoryIds.size - privateRepositories > result.publicRepositories)) {
+        throw new UpstreamError('GitHub repository totals changed during refresh.');
     }
     result.analyzedRepositories = repositoryIds.size;
     result.languages = [...languages].map(([name, data]) => ({ name, ...data }))
