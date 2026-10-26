@@ -56,7 +56,13 @@ export function createHandler<Config extends Settings>(
                     },
                 });
             } else if (url.pathname === '/health') {
-                response = Response.json({ service: 'CodeStats', runtime: 'ready' });
+                response = Response.json({
+                    service: 'CodeStats', runtime: 'ready',
+                    configuration: {
+                        githubTokenConfigured: Boolean(env.GITHUB_TOKEN?.trim()),
+                        wakatimeTokenConfigured: Boolean(env.WAKATIME_TOKEN?.trim()),
+                    },
+                }, { headers: { 'Cache-Control': 'no-store' } });
             } else if (url.pathname === '/favicon.svg') {
                 response = new Response(
                     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'

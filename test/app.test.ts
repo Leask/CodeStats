@@ -12,6 +12,24 @@ describe('shared snapshot failure responses', () => {
         throw new Error('private native exception that must never be published');
     });
 
+    it('reports binding presence independently of cached errors without values', async () => {
+        const request = new Request('https://test.invalid/health');
+        const missing = await handler.fetch(request, settings);
+        expect((await missing.json()).configuration).toEqual({
+            githubTokenConfigured: false, wakatimeTokenConfigured: false,
+        });
+        const configured = await handler.fetch(request, {
+            ...settings, GITHUB_TOKEN: 'isolated-github-fixture',
+            WAKATIME_TOKEN: 'isolated-waka-fixture',
+        });
+        expect(configured.headers.get('cache-control')).toBe('no-store');
+        const body = await configured.text();
+        expect(JSON.parse(body).configuration).toEqual({
+            githubTokenConfigured: true, wakatimeTokenConfigured: true,
+        });
+        expect(body).not.toContain('isolated-');
+    });
+
     it.each(['/', '/card.svg', '/api/stats'])(
         'returns a sanitized, uncached service error for %s', async path => {
             const response = await handler.fetch(

@@ -184,6 +184,8 @@ read through `env`; Secrets keep credential values hidden. After adding a
 previously missing GitHub token, the next request immediately retries that
 specific cached configuration error. Ordinary API/rate-limit failures retain
 their normal cooldown, and successful WakaTime data is left unchanged.
+`/health` reports only whether each token binding is currently configured,
+independently of saved errors; it never returns token values or hashes.
 
 ## Settings
 
