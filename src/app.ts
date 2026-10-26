@@ -14,10 +14,14 @@ function cardOptions(url: URL): CardOptions {
     const theme = url.searchParams.get('theme') ?? 'transparent';
     const view = url.searchParams.get('view') ?? 'overview';
     const sort = url.searchParams.get('sort') ?? 'time';
+    const header = url.searchParams.get('header') ?? 'true';
     if (!['dark', 'light', 'transparent'].includes(theme)
         || !['overview', 'languages', 'activity'].includes(view)
         || !['alternating', 'time', 'code', 'name'].includes(sort)) {
         throw new Error('Invalid theme, view or sort option.');
+    }
+    if (!['true', 'false'].includes(header)) {
+        throw new Error('Header must be true or false.');
     }
     const requested = Number(url.searchParams.get('limit') ?? 10);
     if (!Number.isInteger(requested) || requested < 1 || requested > 100) {
@@ -27,6 +31,7 @@ function cardOptions(url: URL): CardOptions {
         theme: theme as CardOptions['theme'],
         view: view as CardOptions['view'],
         sort: sort as CardOptions['sort'], limit: requested,
+        header: header === 'true',
     };
 }
 

@@ -100,6 +100,19 @@ try {
         .evaluateAll(paths => paths.map(path => path.getAttribute('d')));
     checks.inlineLanguageLogos = svgIcons.length === 10 && tableIcons.length === 10
         && svgIcons.every((match, index) => match[2] === tableIcons[index]);
+    await page.locator('#header').selectOption('false');
+    await page.locator('#card').evaluate(image => image.decode());
+    const withoutHeader = await (await context.request.get(
+        base + await page.locator('#card').getAttribute('src'),
+    )).text();
+    checks.headerToggle = !withoutHeader.includes('data-profile-header')
+        && Number(card.match(/height="(\d+)"/)[1])
+            - Number(withoutHeader.match(/height="(\d+)"/)[1]) === 100
+        && (await page.locator('#snippet').textContent()).includes('?header=false)');
+    await page.locator('#header').selectOption('true');
+    await page.locator('#card').evaluate(image => image.decode());
+    checks.defaultHeaderHasNoParameter = !(await page.locator('#snippet').textContent())
+        .includes('header=');
     await page.screenshot({ path: 'artifacts/preview-desktop.png', fullPage: true });
     await page.locator('#language-details summary').click();
     checks.expansion = await page.locator('#language-details').getAttribute('open') !== null;
@@ -255,6 +268,29 @@ try {
         }
     }
     checks.svgTextWithinViewbox = clipping.length === 0;
+    checks.hiddenHeaderLayout = true;
+    for (const view of ['overview', 'languages', 'activity']) {
+        await svgPage.goto(base + '/card.svg?header=false&view=' + view);
+        checks.hiddenHeaderLayout &&= await svgPage.evaluate(() => {
+            const root = document.querySelector('svg');
+            const bounds = root.getBoundingClientRect();
+            const metrics = [...root.querySelectorAll('[data-summary-metric]')];
+            return !root.querySelector('[data-profile-header]')
+                && metrics.length === 8
+                && metrics[0].getBoundingClientRect().top < bounds.top + 30
+                && [...root.querySelectorAll('text')].every(node => {
+                    const b = node.getBoundingClientRect();
+                    return b.top >= bounds.top && b.bottom <= bounds.bottom
+                        && b.left >= bounds.left && b.right <= bounds.right;
+                });
+        });
+        await svgPage.screenshot({ path: 'artifacts/card-no-header-' + view + '.png' });
+    }
+    await page.goto(base + '/build?header=false');
+    await page.waitForFunction(() => document.querySelector('#loading').hidden);
+    checks.headerQueryOptions = await page.locator('#header').inputValue() === 'false'
+        && (await page.locator('#card').getAttribute('src')).includes('header=false')
+        && (await page.locator('#snippet').textContent()).includes('header=false');
     checks.noJavaScriptErrors = errors.length === 0;
     checks.noExternalAssets = requests.every(url => new URL(url).origin === new URL(base).origin);
     const result = {

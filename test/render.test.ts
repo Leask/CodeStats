@@ -379,6 +379,25 @@ describe('language comparison', () => {
 });
 
 describe('safe README SVG', () => {
+    it.each(['overview', 'languages', 'activity'] as const)(
+        'hides only the profile block and closes its gap in the %s view', view => {
+            const data = activitySnapshot();
+            const full = renderCard(data, { ...options, view });
+            const hidden = renderCard(data, { ...options, view, header: false });
+            expect(full).toContain('data-profile-header="true"');
+            expect(hidden).not.toContain('data-profile-header');
+            expect(hidden).not.toContain('data-profile-name');
+            expect(hidden).not.toContain('data-profile-description');
+            expect(hidden).not.toContain('data-profile-rank');
+            expect(hidden.match(/data-summary-metric=/g)).toHaveLength(8);
+            expect(hidden).toContain('data-refresh-times="true"');
+            expect(hidden).toContain('data-project-credit="true"');
+            const height = (svg: string) => Number(svg.match(/height="(\d+)"/)![1]);
+            expect(height(full) - height(hidden)).toBe(100);
+            expect(renderCard(data, { ...options, view, header: true })).toBe(full);
+        },
+    );
+
     it('shows two relative refresh ages and linked project credit in a compact footer', () => {
         const svg = renderCard(snapshot(), options);
         expect(svg).toContain('GitHub: 1 hr, 0 mins ago | WakaTime: 1 hr, 30 mins ago');

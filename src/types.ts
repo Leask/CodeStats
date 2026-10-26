@@ -97,6 +97,8 @@ export interface CardOptions {
     view: 'overview' | 'languages' | 'activity';
     limit: number;
     sort: 'alternating' | 'time' | 'code' | 'name';
+    /** Include the profile block; shown unless explicitly disabled. */
+    header?: boolean;
 }
 
 export interface Settings {

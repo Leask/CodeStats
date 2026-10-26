@@ -34,6 +34,16 @@ Use `theme=light` or `theme=dark` for a fixed background. Transparent SVGs use a
 transparent background and adapt their palette where the image viewer supports
 it. Both `/` and `/card.svg` serve this transparent card without parameters.
 
+To hide the avatar, name, bio and rank in a profile README, choose
+**Profile header → Hide** in `/build`, or add `header=false`:
+
+```markdown
+[![CodeStats](https://stats.example.com/?header=false)](https://github.com/Leask/CodeStats)
+```
+
+The remaining content moves up and the card becomes shorter. Omit the parameter
+or use `header=true` to show the profile header.
+
 ## Optional explicit light/dark images
 
 The default transparent SVG already contains light/dark palette rules. If you
@@ -90,6 +100,7 @@ Example:
 | --- | --- | --- |
 | `range` | `all_time`, `last_7_days`, `last_30_days` | Server's `DEFAULT_RANGE` |
 | `theme` | `dark`, `light`, `transparent` | `transparent` |
+| `header` | `true`, `false`; show or hide the avatar, name, bio and rank | `true` |
 | `view` | `overview`, `languages`, `activity` | `overview` |
 | `limit` | Integers1–100; the final row is the unselected remainder | `10` |
 | `sort` | `time`, `code`, `name`, `alternating` | `time` |

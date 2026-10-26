@@ -91,10 +91,15 @@ try {
     const root = await mf.dispatchFetch(origin + '/');
     checks.rootIsTransparentImage = root.headers.get('content-type').includes('image/svg+xml')
         && (await root.text()).includes('@media(prefers-color-scheme:dark)');
-    await page.goto(origin + '/build?theme=dark&view=activity');
+    await page.goto(origin + '/build?theme=dark&view=activity&header=false');
     await page.waitForFunction(() => document.querySelector('#loading').hidden);
     checks.builderQueryOptions = await page.locator('#theme').inputValue() === 'dark'
-        && await page.locator('#view').inputValue() === 'activity';
+        && await page.locator('#view').inputValue() === 'activity'
+        && await page.locator('#header').inputValue() === 'false';
+    const hidden = await (await mf.dispatchFetch(origin + '/?header=false')).text();
+    checks.hiddenHeader = !hidden.includes('data-profile-header')
+        && hidden.includes('data-summary-metric')
+        && (await page.locator('#snippet').textContent()).includes('header=false');
     for (const mode of ['503', 'invalid-json']) {
         failure = mode;
         await page.goto(origin + '/build');

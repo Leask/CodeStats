@@ -44,6 +44,16 @@ describe('shared snapshot failure responses', () => {
         },
     );
 
+    it.each(['0', 'no', 'FALSE', ''])(
+        'rejects invalid header=%s before reading the snapshot', async value => {
+            const response = await handler.fetch(
+                new Request('https://test.invalid/?header=' + value), settings,
+            );
+            expect(response.status).toBe(400);
+            expect(await response.text()).toBe('Header must be true or false.');
+        },
+    );
+
     it('keeps the builder available without reading a broken snapshot', async () => {
         const response = await handler.fetch(
             new Request('https://test.invalid/build'), settings,

@@ -186,6 +186,16 @@ describe('Node runtime and persistent snapshots', () => {
         expect(homepage.headers.get('content-type')).toContain('image/svg+xml');
         expect(await homepage.text()).toContain('@media(prefers-color-scheme:dark)');
         const etag = svg.headers.get('etag')!;
+        for (const path of ['/', '/card.svg']) {
+            const hidden = await fetch(url + path + '?header=false', {
+                headers: { 'If-None-Match': etag },
+            });
+            expect(hidden.status).toBe(200);
+            expect(hidden.headers.get('etag')).not.toBe(etag);
+            const body = await hidden.text();
+            expect(body).not.toContain('data-profile-header');
+            expect(body).toContain('data-summary-metric');
+        }
         const notModified = await fetch(url + '/card.svg', {
             headers: { 'If-None-Match': etag },
         });

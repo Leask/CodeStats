@@ -577,7 +577,8 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const empty = rows.length === 0;
     const bodyHeight = activity ? 448 : Math.max(96, rows.length * 39 + 24);
     const metricRowHeight = 64;
-    const contentOffset = 61;
+    const hiddenHeaderHeight = options.header === false ? 100 : 0;
+    const contentOffset = 61 - hiddenHeaderHeight;
     const footerY = 257 + contentOffset + bodyHeight;
     const height = footerY + 40;
     const github = snapshot.github.data;
@@ -664,7 +665,8 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         12, palette.time) : '') + '</g></g>';
     const metricMarkup = metrics.map((metric, index) => {
         const x = 32 + index % 4 * 211;
-        const y = 166 + Math.floor(index / 4) * metricRowHeight;
+        const y = 166 - hiddenHeaderHeight
+            + Math.floor(index / 4) * metricRowHeight;
         const valueX = x + 42;
         const size = Math.min(29, Math.floor(142 / (metric.value.length * 0.62)));
         const iconSize = 36;
@@ -764,7 +766,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `<rect x=".5" y=".5" width="879" height="${height - 1}" rx="22" `
         + `fill="${transparent ? 'none' : palette.bg}" stroke="${palette.line}"/>`
         + '<g transform="translate(0 -20)">'
-        + profileHeader
+        + (options.header === false ? '' : profileHeader)
         + metricMarkup
         + `<path d="M32 ${217 + contentOffset}H848" stroke="${palette.line}"/>`
         + `<g transform="translate(0 ${contentOffset})">${body}</g>`
@@ -881,6 +883,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <option value="last_7_days">Last 7 days</option><option value="last_30_days">Last 30 days</option></select></div>
 <div class="control"><label for="theme">Appearance</label><select id="theme"><option value="transparent">Transparent</option>
 <option value="dark">Midnight</option><option value="light">Paper</option></select></div>
+<div class="control"><label for="header">Profile header</label><select id="header">
+<option value="true">Show</option><option value="false">Hide</option></select></div>
 <div class="control"><label for="view">View</label><select id="view"><option value="overview">Overview</option>
 <option value="languages">Language detail</option><option value="activity">GitHub activity</option></select></div>
 <div class="control"><label for="sort">Language order</label><select id="sort"><option value="time">Coding time first</option>
@@ -931,9 +935,10 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 (() => {
     'use strict';
     const $ = (id) => document.getElementById(id);
-    const controls = ['range', 'theme', 'view', 'sort'];
+    const controls = ['range', 'theme', 'header', 'view', 'sort'];
     const defaults = { range: ${JSON.stringify(defaultRange)},
-        theme: 'transparent', view: 'overview', sort: 'time', limit: '10' };
+        theme: 'transparent', header: 'true',
+        view: 'overview', sort: 'time', limit: '10' };
     const query = new URLSearchParams(location.search);
     for (const id of controls) {
         const value = query.get(id) || defaults[id];
@@ -970,6 +975,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     const params = (theme, view) => new URLSearchParams({
         range: $('range').value,
         theme: theme || $('theme').value,
+        header: $('header').value,
         view: view || $('view').value,
         limit: '10',
         sort: $('sort').value,
