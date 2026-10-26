@@ -15,7 +15,7 @@ describe('shared snapshot failure responses', () => {
     it('reports binding presence independently of cached errors without values', async () => {
         const request = new Request('https://test.invalid/health');
         const missing = await handler.fetch(request, settings);
-        expect((await missing.json()).configuration).toEqual({
+        expect(JSON.parse(await missing.text()).configuration).toEqual({
             githubTokenConfigured: false, wakatimeTokenConfigured: false,
         });
         const configured = await handler.fetch(request, {
