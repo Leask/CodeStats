@@ -8,6 +8,9 @@
     "vars": {
         "GITHUB_USERNAME": "Leask",
         "GITHUB_VISIBILITY": "all",
+        "GITHUB_REPOSITORY_AFFILIATIONS": "OWNER,COLLABORATOR,ORGANIZATION_MEMBER",
+        "GITHUB_INCLUDE_FORKS": "true",
+        "GITHUB_INCLUDE_OWN_CONTRIBUTIONS": "true",
         "WAKATIME_USERNAME": "leask",
         "DEFAULT_RANGE": "all_time",
         "FRESH_SECONDS": "21600",

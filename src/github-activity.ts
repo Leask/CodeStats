@@ -11,14 +11,14 @@ import type { Env, Fetcher, GitHubActivityData } from './types';
 
 const DAY_MS = 86_400_000;
 const REPOSITORY_LIMIT = 100;
-const RANGE_BATCH = 4;
-const YEAR_BATCH = 10;
+const RANGE_BATCH = 10;
+const YEAR_BATCH = 30;
 const REPOSITORY_FIELDS = 'repository { id owner { id } }';
 const CREATION_FIELDS = `totalCount pageInfo { hasNextPage endCursor }
     nodes { ${REPOSITORY_FIELDS} }`;
 
 const PROFILE = `query ActivityProfile($login: String!,
-    $from: DateTime!, $to: DateTime!) {
+    $from: DateTime!, $to: DateTime!, $includeOwn: Boolean!) {
     viewer { id login organizations(first: 1) { totalCount } }
     user(login: $login) {
         id login createdAt
@@ -30,7 +30,7 @@ const PROFILE = `query ActivityProfile($login: String!,
         recent: contributionsCollection(from: $from, to: $to) {
             totalPullRequestReviewContributions
         }
-        repositoriesContributedTo(first: 1, includeUserRepositories: false,
+        repositoriesContributedTo(first: 1, includeUserRepositories: $includeOwn,
             contributionTypes: [COMMIT, ISSUE, PULL_REQUEST,
                 PULL_REQUEST_REVIEW, REPOSITORY]) {
             totalCount
@@ -106,7 +106,8 @@ function rangeFields(ranges: DateRange[], fields: string): string {
  */
 export async function fetchGitHubActivity(
     env: Pick<Env,
-        'GITHUB_USERNAME' | 'GITHUB_TOKEN' | 'GITHUB_VISIBILITY'>,
+        'GITHUB_USERNAME' | 'GITHUB_TOKEN' | 'GITHUB_VISIBILITY'
+        | 'GITHUB_INCLUDE_OWN_CONTRIBUTIONS'>,
     fetcher: Fetcher = fetch,
     now: number | (() => number) = Date.now,
 ): Promise<GitHubActivityData> {
@@ -117,6 +118,11 @@ export async function fetchGitHubActivity(
             'GitHub activity requires all visibility; public-only activity is unavailable.',
         );
     }
+    const ownSetting = env.GITHUB_INCLUDE_OWN_CONTRIBUTIONS ?? 'true';
+    if (!['true', 'false'].includes(ownSetting)) {
+        throw new UpstreamError('GITHUB_INCLUDE_OWN_CONTRIBUTIONS must be true or false.');
+    }
+    const includeOwn = ownSetting === 'true';
     const current = typeof now === 'function' ? now() : now;
     if (!Number.isFinite(current) || current < Date.UTC(2008, 0, 1)
         || current > Date.UTC(2200, 0, 1)) {
@@ -133,7 +139,7 @@ export async function fetchGitHubActivity(
         requiredScopes: ['repo', 'read:user', 'read:org'],
     });
     const profile = await client.query(PROFILE, {
-        login: client.login, from: recentFrom, to: recentTo,
+        login: client.login, from: recentFrom, to: recentTo, includeOwn,
     });
     const user = object(profile.user);
     const viewer = object(profile.viewer);
@@ -203,7 +209,7 @@ export async function fetchGitHubActivity(
             );
         }
         repositoryOwners.set(id, ownerId);
-        if (ownerId !== userId) {
+        if (includeOwn || ownerId !== userId) {
             repositories.add(id);
         }
         return id;
@@ -291,7 +297,8 @@ export async function fetchGitHubActivity(
         `commenter:${username} -author:${username} type:issue`);
 
     return {
-        collectionVersion: 2,
+        collectionVersion: 3,
+        includesOwnRepositories: includeOwn,
         username,
         visibility: 'all',
         scope: 'Personal activity across token-visible public, private and internal '
@@ -300,8 +307,9 @@ export async function fetchGitHubActivity(
             + 'reviewed items: distinct non-self-authored issues or PRs. '
             + 'Review contributions and contributed repositories: recent year. '
             + 'Lifetime repository count: visible commit, issue, PR, review and '
-            + 'repository creation contributions, excluding currently owned '
-            + 'repositories. '
+            + 'repository creation contributions, '
+            + (includeOwn ? 'including currently owned repositories. '
+                : 'excluding currently owned repositories. ')
             + 'Annual totals: GitHub contribution calendar; restricted counts '
             + (restrictedContributions > 0 ? 'are included once.' : 'are zero.')
             + ' Access remains limited by token permissions and organization policy.',

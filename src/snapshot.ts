@@ -1,6 +1,7 @@
 import { SnapshotCache } from './cache';
 import type { Storage } from './cache';
 import { fetchGitHub } from './github';
+import { repositoryOptions } from './github-options';
 import { fetchGitHubActivity } from './github-activity';
 import { fetchWakaTime } from './wakatime';
 import type { Fetcher, Settings } from './types';
@@ -24,6 +25,10 @@ export function createProfileCache(
     env: Settings,
     fetcher: Fetcher = fetch,
 ): SnapshotCache {
+    const options = repositoryOptions(env);
+    const githubKey = ['github:repositories:v6',
+        env.GITHUB_VISIBILITY ?? 'public',
+        options.affiliations.join(','), String(options.includeForks)].join(':');
     return new SnapshotCache(storage, {
         github: () => fetchGitHub(env, fetcher),
         githubActivity: () => fetchGitHubActivity(env, fetcher),
@@ -31,8 +36,9 @@ export function createProfileCache(
     }, {
         freshSeconds: seconds(env.FRESH_SECONDS, 21600, 60),
         retrySeconds: seconds(env.RETRY_SECONDS, 900, 60),
-        githubKey: env.GITHUB_VISIBILITY === 'all' ? 'github:all-v1' : 'github',
-        githubActivityKey: `github:activity:${env.GITHUB_VISIBILITY ?? 'public'}:v1`,
-        githubActivityCollectionVersion: 2,
+        githubKey,
+        githubActivityKey: `github:activity:${env.GITHUB_VISIBILITY ?? 'public'}:v3:`
+            + (env.GITHUB_INCLUDE_OWN_CONTRIBUTIONS ?? 'true'),
+        githubActivityCollectionVersion: 3,
     });
 }

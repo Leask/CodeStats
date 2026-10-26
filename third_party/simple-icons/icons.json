@@ -1,0 +1,120 @@
+{
+    "version": "16.36.0",
+    "revision": "2f67e5d1a7e5cba43c79a0ebc00abcd95fb0ea30",
+    "icons": [
+        {
+            "title": "C",
+            "source": "https://commons.wikimedia.org/wiki/File:The_C_Programming_Language_logo.svg"
+        },
+        {
+            "title": "C++",
+            "source": "https://github.com/isocpp/logos/tree/64ef037049f87ac74875dbe72695e59118b52186"
+        },
+        {
+            "title": "CSS",
+            "source": "https://github.com/CSS-Next/logo.css/blob/bacc20878227204b283c68a6b935f8279e06b0cd/css.svg",
+            "guidelines": "https://github.com/CSS-Next/logo.css"
+        },
+        {
+            "title": "Docker",
+            "source": "https://www.docker.com/company/newsroom/media-resources"
+        },
+        {
+            "title": "GNU Bash",
+            "source": "https://github.com/odb/official-bash-logo/tree/61eff022f2dad3c7468f5deb4f06652d15f2c143",
+            "license": {
+                "type": "MIT"
+            },
+            "guidelines": "https://github.com/odb/official-bash-logo"
+        },
+        {
+            "title": "Go",
+            "source": "https://blog.golang.org/go-brand",
+            "guidelines": "https://blog.golang.org/go-brand"
+        },
+        {
+            "title": "HTML5",
+            "source": "https://www.w3.org/html/logo/"
+        },
+        {
+            "title": "JavaScript",
+            "source": "https://github.com/voodootikigod/logo.js/blob/1544bdeed6d618a6cfe4f0650d04ab8d9cfa76d9/js.svg",
+            "license": {
+                "type": "MIT"
+            }
+        },
+        {
+            "title": "JSON",
+            "source": "https://commons.wikimedia.org/wiki/File:JSON_vector_logo.svg"
+        },
+        {
+            "title": "Kotlin",
+            "source": "https://www.jetbrains.com/company/brand/logos/",
+            "guidelines": "https://www.jetbrains.com/company/brand/"
+        },
+        {
+            "title": "Lua",
+            "source": "https://www.lua.org/images/",
+            "guidelines": "https://www.lua.org/images/"
+        },
+        {
+            "title": "Markdown",
+            "source": "https://github.com/dcurtis/markdown-mark/tree/360a3657fef7f6ad0b303296a95ad52985caa0d3",
+            "license": {
+                "type": "CC0-1.0"
+            },
+            "guidelines": "https://github.com/dcurtis/markdown-mark"
+        },
+        {
+            "title": "PHP",
+            "source": "https://php.net/download-logos.php",
+            "license": {
+                "type": "CC-BY-SA-4.0"
+            }
+        },
+        {
+            "title": "Python",
+            "source": "https://www.python.org/community/logos/",
+            "guidelines": "https://www.python.org/community/logos/"
+        },
+        {
+            "title": "R",
+            "source": "https://www.r-project.org/logo/",
+            "license": {
+                "type": "CC-BY-SA-4.0"
+            }
+        },
+        {
+            "title": "Ruby",
+            "source": "https://www.ruby-lang.org/en/about/logo/",
+            "license": {
+                "type": "CC-BY-SA-2.5"
+            }
+        },
+        {
+            "title": "Rust",
+            "source": "https://www.rust-lang.org",
+            "license": {
+                "type": "CC-BY-SA-4.0"
+            },
+            "guidelines": "https://www.rust-lang.org/policies/media-guide"
+        },
+        {
+            "title": "Swift",
+            "source": "https://developer.apple.com/swift/resources/",
+            "guidelines": "https://developer.apple.com/swift/resources/"
+        },
+        {
+            "title": "TypeScript",
+            "source": "https://www.typescriptlang.org/branding",
+            "guidelines": "https://www.typescriptlang.org/branding"
+        },
+        {
+            "title": "Zig",
+            "source": "https://github.com/ziglang/logo/blob/6446ba8e37a0651da720d8869e1ce9264fa0c0b9/zig-mark.svg",
+            "license": {
+                "type": "CC-BY-SA-4.0"
+            }
+        }
+    ]
+}

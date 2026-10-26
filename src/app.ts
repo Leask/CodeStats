@@ -16,10 +16,10 @@ function cardOptions(url: URL): CardOptions {
     const sort = url.searchParams.get('sort') ?? 'time';
     if (!['dark', 'light', 'transparent'].includes(theme)
         || !['overview', 'languages', 'activity'].includes(view)
-        || !['time', 'code', 'name'].includes(sort)) {
+        || !['alternating', 'time', 'code', 'name'].includes(sort)) {
         throw new Error('Invalid theme, view or sort option.');
     }
-    const requested = Number(url.searchParams.get('limit') ?? 8);
+    const requested = Number(url.searchParams.get('limit') ?? 10);
     if (!Number.isInteger(requested) || requested < 1 || requested > 100) {
         throw new Error('Limit must be an integer from 1 to 100.');
     }

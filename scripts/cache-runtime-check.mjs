@@ -21,9 +21,16 @@ const githubResponse = value => Response.json(value, {
 const outboundService = async request => {
     requests++;
     const url = new URL(request.url);
-    assert.ok(['api.github.com', 'api.wakatime.com'].includes(url.hostname));
+    assert.ok(['api.github.com', 'api.wakatime.com',
+        'avatars.githubusercontent.com'].includes(url.hostname));
     if (failing) {
         return new Response('upstream unavailable', { status: 503 });
+    }
+    if (url.hostname === 'avatars.githubusercontent.com') {
+        assert.equal(request.headers.get('authorization'), null);
+        return new Response(new Uint8Array([137, 80, 78, 71]), {
+            headers: { 'content-type': 'image/png' },
+        });
     }
     if (url.hostname === 'api.wakatime.com') {
         return Response.json({ data: {
@@ -78,9 +85,11 @@ const outboundService = async request => {
         return githubResponse({ data: {
             user: {
                 login: 'test', name: 'Test', followers: { totalCount: 2 },
+                bio: 'Builds tools',
+                avatarUrl: 'https://avatars.githubusercontent.com/u/123?s=128',
                 publicRepositories: { totalCount: 1 },
-                privateRepositories: { totalCount: 1 },
-                repositories: { totalCount: 2 },
+                privateRepositories: { totalCount: 0 },
+                repositories: { totalCount: 1 },
             },
             prs: { issueCount: 4 }, merged: { issueCount: 3 }, issues: { issueCount: 2 },
         } });
@@ -89,6 +98,7 @@ const outboundService = async request => {
         totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null },
         nodes: [{
             id: 'test-repository', isPrivate: false, isFork: false,
+            owner: { login: 'test' },
             stargazerCount: 8, forkCount: 2,
             languages: {
                 totalSize: 1000, pageInfo: { hasNextPage: false, endCursor: null },
@@ -122,6 +132,9 @@ try {
         && first.wakatime.status === 'fresh'
         && first.githubActivity.status === 'fresh';
     assert.ok(checks.realWorkerdFresh);
+    checks.embeddedAvatar = first.github.data.avatarDataUri
+        === 'data:image/png;base64,iVBORw==';
+    assert.ok(checks.embeddedAvatar);
     const binding = (await mf.getBindings()).SNAPSHOTS;
     const id = binding.idFromName('public-v1:test:test');
     await binding.get(id).fetch('https://test.invalid/test/age');
@@ -153,7 +166,8 @@ try {
     const markup = await svg.text();
     checks.readmeImageSurvives = svg.status === 200
         && svg.headers.get('content-type').includes('image/svg+xml')
-        && markup.includes('SAVED SNAPSHOT') && markup.includes('TypeScript');
+        && markup.includes('saved data · refresh unavailable')
+        && markup.includes('2020-01-01') && markup.includes('TypeScript');
     await mf.dispose();
     mf = create();
     const restart = await stats(mf);

@@ -6,6 +6,7 @@ const env = {
     GITHUB_USERNAME: 'Leask',
     GITHUB_TOKEN: 'fixture-only-token',
     GITHUB_VISIBILITY: 'all' as const,
+    GITHUB_INCLUDE_OWN_CONTRIBUTIONS: 'false',
 };
 const NOW = Date.parse('2026-10-25T12:34:56Z');
 const headers = { 'x-oauth-scopes': 'repo, user, admin:org' };
@@ -104,6 +105,23 @@ function fixture(
 }
 
 describe('GitHub personal activity collector', () => {
+    it('can include owned repositories using the native aggregate option', async () => {
+        const { fetcher, requests } = fixture(request => {
+            if (!request.query.includes('query ActivityRepositories')) return;
+            return response({ user: Object.fromEntries(ranges(request.query)
+                .map(range => [range.key, collection([
+                    repository('own', 'account-id'), repository('external'),
+                ])])) });
+        });
+        const data = await fetchGitHubActivity({ ...env,
+            GITHUB_INCLUDE_OWN_CONTRIBUTIONS: 'true' }, fetcher, NOW);
+        expect(data.allTimeContributedRepositories).toBe(2);
+        expect(data.includesOwnRepositories).toBe(true);
+        expect(requests[0].variables.includeOwn).toBe(true);
+        expect(data.scope).toContain('including currently owned');
+        expect(JSON.stringify(requests)).not.toMatch(/history\(|additions|deletions/);
+    });
+
     it('collects scoped aggregates without returning private identities', async () => {
         const { fetcher, requests } = fixture(request => {
             if (!request.query.includes('query ActivityRepositories')) return;
@@ -116,7 +134,7 @@ describe('GitHub personal activity collector', () => {
         });
         const data = await fetchGitHubActivity(env, fetcher, NOW);
         expect(data).toMatchObject({
-            collectionVersion: 2,
+            collectionVersion: 3,
             username: 'Leask', visibility: 'all', commits: 500,
             pullRequestsCommented: 7, pullRequestsReviewed: 5,
             issuesCommented: 9, discussionsStarted: 6,
@@ -299,7 +317,7 @@ describe('GitHub personal activity collector', () => {
                 headers: { 'x-oauth-scopes': scopes },
             }));
             await expect(fetchGitHubActivity(env, fetcher, NOW))
-                .rejects.toThrow('classic PAT scopes');
+                .rejects.toThrow('PAT/OAuth scopes');
             expect(requests).toHaveLength(1);
         });
 

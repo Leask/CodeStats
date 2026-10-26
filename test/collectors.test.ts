@@ -14,6 +14,7 @@ const repository = (id = 'repo-1') => ({
     id,
     isPrivate: false,
     isFork: false,
+    owner: { login: 'Leask' },
     stargazerCount: 3,
     forkCount: 2,
     languages: { totalSize: 120, pageInfo: pageInfo(), edges: edges() },
@@ -21,7 +22,7 @@ const repository = (id = 'repo-1') => ({
 const profile = {
     user: {
         login: 'Leask', name: 'Leask', followers: { totalCount: 50 },
-        publicRepositories: { totalCount: 3 },
+        publicRepositories: { totalCount: 2 },
     },
     prs: { issueCount: 40 },
     merged: { issueCount: 30 },
@@ -43,8 +44,9 @@ const allProfile = {
     ...profile,
     user: {
         ...profile.user,
-        privateRepositories: { totalCount: 2 },
-        repositories: { totalCount: 5 },
+        publicRepositories: { totalCount: 1 },
+        privateRepositories: { totalCount: 1 },
+        repositories: { totalCount: 2 },
     },
 };
 const allRepositories = (
@@ -82,6 +84,122 @@ const githubEnv = { GITHUB_USERNAME: 'Leask', GITHUB_TOKEN: 'fixture-only' };
 const allGithubEnv = { ...githubEnv, GITHUB_VISIBILITY: 'all' as const };
 
 describe('GitHub collector', () => {
+    it('collects public profile fields with metrics and embeds the public avatar', async () => {
+        const { fetcher, requests } = sequence([
+            json({ ...profile, user: { ...profile.user, bio: 'Builds tools',
+                avatarUrl: 'https://avatars.githubusercontent.com/u/123?s=128',
+                status: { message: 'Working', organization: null, expiresAt: null } } }),
+            new Response(new Uint8Array([137, 80, 78, 71]), {
+                headers: { 'content-type': 'image/png' },
+            }),
+            json(repositories([repository(), repository('r-2')], 2)),
+        ]);
+        const data = await fetchGitHub(githubEnv, fetcher);
+        expect(data).toMatchObject({ bio: 'Builds tools', profileStatus: 'Working',
+            avatarDataUri: 'data:image/png;base64,iVBORw==', stars: 6 });
+        expect(requests).toHaveLength(3);
+        expect(requests[0].body.query).toContain('avatarUrl(size: 128)');
+        expect(requests[0].body.query).toContain('organization { id }');
+    });
+    it('reads 201 repositories in three pages without traversing commits', async () => {
+        const repos = Array.from({ length: 201 }, (_, i) => repository(`r-${i}`));
+        const { fetcher, requests } = sequence([
+            json({ ...profile, user: { ...profile.user,
+                publicRepositories: { totalCount: 201 } } }),
+            json(repositories(repos.slice(0, 100), 201, true, 'p2')),
+            json(repositories(repos.slice(100, 200), 201, true, 'p3')),
+            json(repositories(repos.slice(200), 201)),
+        ]);
+        const data = await fetchGitHub(githubEnv, fetcher);
+        expect(data.analyzedRepositories).toBe(201);
+        expect(data.totalBytes).toBe(201 * 120);
+        expect(requests).toHaveLength(4);
+        expect(JSON.stringify(requests)).not.toMatch(
+            /defaultBranchRef|history\(|additions|deletions/,
+        );
+        expect(requests[1].body.query).toContain('repositories(first: 100');
+        expect(requests[1].body.variables).toMatchObject({
+            affiliations: ['COLLABORATOR', 'ORGANIZATION_MEMBER', 'OWNER'],
+            isFork: null,
+        });
+    });
+
+    it('includes fork bytes but avoids counting the upstream fork network', async () => {
+        const { fetcher } = sequence([
+            json(profile), json(repositories([
+                repository(), { ...repository('fork'), isFork: true, forkCount: 999 },
+            ], 2)),
+        ]);
+        const data = await fetchGitHub(githubEnv, fetcher);
+        expect(data).toMatchObject({ analyzedForks: 1, totalBytes: 240,
+            stars: 6, forks: 2 });
+    });
+
+    it('counts only owned stars without narrowing repository or language scope', async () => {
+        const nodes = [
+            { ...repository('owned'), owner: { login: 'leask' },
+                stargazerCount: 10 },
+            { ...repository('owned-fork'), isFork: true, isPrivate: true,
+                stargazerCount: 2, forkCount: 999 },
+            { ...repository('organization'), owner: { login: 'private-org' },
+                isPrivate: true, stargazerCount: 10_000 },
+            { ...repository('collaboration'), owner: { login: 'other-user' },
+                stargazerCount: 5_000 },
+        ];
+        const { fetcher, requests } = sequence([
+            privateJson({ ...allProfile, user: { ...allProfile.user,
+                repositories: { totalCount: 4 },
+                publicRepositories: { totalCount: 2 },
+                privateRepositories: { totalCount: 2 } } }),
+            privateJson(allRepositories(nodes, 4)),
+        ]);
+        const data = await fetchGitHub(allGithubEnv, fetcher);
+        expect(data).toMatchObject({
+            collectionVersion: 6, stars: 12, repositories: 4,
+            analyzedRepositories: 4, analyzedForks: 1, totalBytes: 480, forks: 6,
+        });
+        expect(requests).toHaveLength(2);
+        expect(requests[1].body.query).toContain('owner { login }');
+        expect(JSON.stringify(requests)).not.toMatch(/history\(|contributionsCollection/);
+        expect(data.scope).toContain('organization/collaborator stars excluded');
+        expect(JSON.stringify(data)).not.toMatch(/private-org|other-user|owned-fork/);
+    });
+
+    it.each([undefined, { login: null }, { login: '' }])(
+        'rejects unknown repository ownership instead of caching ambiguous stars %j',
+        async owner => {
+            const { fetcher } = sequence([
+                json(profile),
+                json(repositories([{ ...repository(), owner }], 2)),
+            ]);
+            await expect(fetchGitHub(githubEnv, fetcher)).rejects.toThrow();
+        },
+    );
+
+    it('supports the reference OWNER/non-fork filters directly', async () => {
+        const { fetcher, requests } = sequence([
+            json({ ...profile, user: { ...profile.user,
+                publicRepositories: { totalCount: 1 } } }),
+            json(repositories()),
+        ]);
+        await fetchGitHub({ ...githubEnv,
+            GITHUB_REPOSITORY_AFFILIATIONS: 'OWNER',
+            GITHUB_INCLUDE_FORKS: 'false' }, fetcher);
+        expect(requests[1].body.variables).toMatchObject({
+            affiliations: ['OWNER'], isFork: false,
+        });
+    });
+
+    it('rejects invalid filters before contacting GitHub', async () => {
+        const { fetcher, requests } = sequence([]);
+        for (const filters of [{ GITHUB_REPOSITORY_AFFILIATIONS: 'ADMIN' },
+            { GITHUB_INCLUDE_FORKS: 'maybe' }]) {
+            await expect(fetchGitHub({ ...githubEnv, ...filters }, fetcher))
+                .rejects.toThrow();
+        }
+        expect(requests).toHaveLength(0);
+    });
+
     it('joins every repository and nested language page with explicit scope', async () => {
         const first = repository();
         first.languages.totalSize = 150;
@@ -103,7 +221,7 @@ describe('GitHub collector', () => {
         const data = await fetchGitHub(githubEnv, fetcher);
         expect(data.totalBytes).toBe(270);
         expect(data.analyzedRepositories).toBe(2);
-        expect(data.publicRepositories).toBe(3);
+        expect(data.publicRepositories).toBe(2);
         expect(data.visibility).toBe('public');
         expect(data.stars).toBe(6);
         expect(data.languages.map((x) => [x.name, x.bytes])).toEqual([
@@ -119,7 +237,7 @@ describe('GitHub collector', () => {
         expect(requests[2]?.body.variables).toEqual({
             id: 'repo-1', after: 'lang-next',
         });
-        expect(requests[3]?.body.variables).toEqual({
+        expect(requests[3]?.body.variables).toMatchObject({
             login: 'Leask', after: 'repo-next', privacy: 'PUBLIC',
         });
         expect(JSON.stringify(data)).not.toContain('repo-1');
@@ -151,15 +269,15 @@ describe('GitHub collector', () => {
         ]);
         const data = await fetchGitHub(allGithubEnv, fetcher);
         expect(data).toMatchObject({
-            visibility: 'all', repositories: 5, publicRepositories: 3,
-            privateRepositories: 2, analyzedRepositories: 2,
+            visibility: 'all', repositories: 2, publicRepositories: 1,
+            privateRepositories: 1, analyzedRepositories: 2,
             totalBytes: 270, stars: 6, forks: 4,
             pullRequests: 40, mergedPullRequests: 30, issues: 12,
         });
         expect(data.languages.map(x => [x.name, x.bytes])).toEqual([
             ['Rust', 120], ['TypeScript', 120], ['JavaScript', 30],
         ]);
-        expect(requests[0]?.body.variables).toEqual({
+        expect(requests[0]?.body.variables).toMatchObject({
             login: 'Leask', all: true,
             prs: 'author:Leask is:pr',
             merged: 'author:Leask is:pr is:merged',
@@ -167,14 +285,14 @@ describe('GitHub collector', () => {
         });
         expect(String(requests[0]?.body.query)).toContain('privateRepositories:');
         expect(String(requests[1]?.body.query)).toContain('privacy: $privacy');
-        expect(String(requests[1]?.body.query)).toContain('ownerAffiliations: [OWNER]');
-        expect(requests[1]?.body.variables).toEqual({
+        expect(String(requests[1]?.body.query)).toContain('ownerAffiliations: $affiliations');
+        expect(requests[1]?.body.variables).toMatchObject({
             login: 'Leask', after: null, privacy: null,
         });
-        expect(requests[3]?.body.variables).toEqual({
+        expect(requests[3]?.body.variables).toMatchObject({
             login: 'Leask', after: 'next', privacy: null,
         });
-        expect(data.scope).toContain('organizations and external repositories');
+        expect(data.scope).toContain('organizations and external open source');
         expect(JSON.stringify(data)).not.toContain('private-repository');
         expect(JSON.stringify(data)).not.toContain('fixture-only');
     });
@@ -211,7 +329,7 @@ describe('GitHub collector', () => {
                 user: {
                     ...allProfile.user,
                     privateRepositories: { totalCount: 0 },
-                    repositories: { totalCount: 3 },
+                    repositories: { totalCount: 1 },
                 },
             }),
             privateJson(allRepositories([{ ...repository(), isPrivate: true }])),
@@ -239,7 +357,6 @@ describe('GitHub collector', () => {
         { isPrivate: undefined },
         { isPrivate: null },
         { isPrivate: 'true' },
-        { isFork: true },
         { isFork: undefined },
     ])('rejects malformed or out-of-scope all-mode repository flags %j', async flags => {
         const { fetcher } = sequence([
@@ -352,7 +469,8 @@ describe('GitHub collector', () => {
     });
 
     it('supports a valid empty public language inventory and unset display name', async () => {
-        const noName = { ...profile, user: { ...profile.user, name: '' } };
+        const noName = { ...profile, user: { ...profile.user, name: '',
+            publicRepositories: { totalCount: 0 } } };
         const { fetcher } = sequence([json(noName), json(repositories([], 0))]);
         const data = await fetchGitHub(githubEnv, fetcher);
         expect(data.name).toBe('Leask');

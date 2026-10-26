@@ -1,61 +1,49 @@
 # Implementation contract
 
-Independent CodeStats repository, authorized for GitHub publication on2026-10-26.
-Support both a regular Node HTTP server and Cloudflare Worker. Publishing source
-does not deploy to Cloudflare or edit the profile README. No cron/daemon needed.
+CodeStats is one single-profile application with Node and Cloudflare Worker
+adapters, sharing collectors, cache, routes and rendering.
 
-Use `src/types.ts` as the shared contract. The user authorized aggregate public,
-private, organization and external personal activity. Collectors never return
-token strings, raw upstream errors, repository names/IDs, project names or file
-paths. Reject malformed or incomplete pagination rather than replace last-good
-data. Do not confuse repository content bytes with personal authorship.
+- github.ts: native GraphQL repository counts, PR/issue aggregates, stars, forks
+  and language bytes.100 repositories and100 languages/page; follow cursors.
+  Stars count only repositories owned by the configured user, including own
+  forks when enabled. Organization/collaborator stars are excluded without
+  narrowing repository counts, fork counts or language bytes. Ownership comes
+  from the existing repository pages, with no extra API calls or history joins.
+- github-activity.ts: REST Search total_count with per_page=1; GraphQL discussion,
+  review and calendar aggregates. Lifetime contributed repositories deduplicate
+  the API's annual repository summaries, including review-only repositories.
+  Split saturated date ranges as the reference does, never individual commits.
+- github-api.ts: official GitHub origin, server-side PAT/OAuth bearer token,
+  bounded requests/timeouts, safe errors, GraphQL and SSO checks.
+- github-profile.ts: public bio/status and a bounded unauthenticated avatar
+  request to GitHub's avatar origin; cached embedded raster, no nested image fetch.
+  Organization-only status messages are excluded from public output.
+- rank.ts: reference-project weighted percentile estimate using saved aggregates;
+  preserve the MIT attribution in third_party/github-stats-extended.
+- wakatime.ts: official all_time statistics by default, optional OAuth read token.
+  Preserve the returned period, today flag and Other-inclusive denominator.
+- cache.ts/snapshot.ts: independent durable last-good datasets for GitHub
+  repositories, GitHub activity and WakaTime. Two services, three datasets.
+  Scope changes use separate keys. Fresh6h, retry15m, rate-limit-aware.
+  Warm requests return saved data while refreshing; failure retains values/times.
+- render.ts/app.ts: SVG, aggregate JSON, preview with expandable tables and README
+  generator. GitHub bytes and WakaTime hours retain separate denominators. Language
+  families are summed first. Alternating time/byte ranks select9 named groups,
+  excluding upstream Other. Display defaults to time order; Others remains last
+  and sums the entire unselected remainder. Both columns conserve all collected
+  seconds/bytes using their original full-source denominators. The preview and
+  SVG share selection/remainder logic. Displayed percentages use integer units
+  at each surface's precision, with Others equal to100 minus displayed named
+  shares; original seconds/bytes and missing-data semantics remain unchanged.
+  Raw source/cache data is unchanged.
+- language-icons.ts/icon-data.json: local SVG logo paths shared by README and
+  HTML preview; no external images/fonts, safe neutral fallback for unknowns.
+- index.ts: SQLite Durable Object adapter. node.ts/node-storage.ts: Node HTTP
+  and private SQLite adapter. Preserve both cache directories independently.
 
-`src/github.ts`: export `fetchGitHub(env, fetcher = fetch): Promise<GitHubData>`.
-Use GitHub GraphQL and a server-side token. Paginate all owned non-fork
-repositories and all language-byte fields, including archived repositories.
-`public` filters and verifies public scope; `all` includes currently token-visible
-private repositories. Owned repository counts include forks; analyzed count and
-scope are explicit. PR/issues search spans all visible repositories in all mode.
-Do not silently cap repository or language pagination.
+No commit-history walker, additions/deletions counter, author attribution, SHA
+ledger, backfill queue, progress poller, login UI or scheduler is implemented.
+No private repository names/IDs, project/file names, secrets or raw upstream errors
+leave collectors. Only key-free configuration samples are tracked.
 
-`src/github-activity.ts`: independent activity collector. Authenticate as the
-configured user and require classic repo/profile/org read scopes for all mode.
-Reject SSO partial results. Collect indexed authored commits, distinct non-self
-PR/issue participation, discussions/accepted answers, recent review/repository
-contributions and all reported calendar years. Never add restricted contributions
-to the already inclusive calendar total. Lifetime external repository counts
-deduplicate transient IDs across commit, issue, PR, review and repository-creation
-contributions/years; saturated intervals
-split or fail closed. Private activity is unavailable in public-only mode rather
-than silently publishing mixed-scope aggregates.
-
-`src/wakatime.ts`: export `fetchWakaTime(env, range, fetcher = fetch): Promise<WakaData>`.
-Read the official public API, optional OAuth Bearer token. Default all_time because
-Leask's public profile publishes that range. Preserve upstream language percentages;
-total includes Other. A different inaccessible range remains unavailable, not silently
-replaced by all_time. Aggregate language/time fields only.
-
-`src/render.ts`: export `renderCard(snapshot, options): string` (standalone SVG),
-`renderPage(): string` (responsive HTML preview using `/api/stats` and `/card.svg`),
-and `joinLanguages(snapshot, sort): LanguageRow[]`. SVG options must not inject raw
-untrusted markup; XML escape dynamic text. Valid SVG without foreignObject, scripts
-or remote fonts. Separate WakaTime time-share denominator from GitHub byte-share.
-Time-first rows plus GitHub-only rows; preserve Other as time-only (code null).
-Use intentional language aliases (e.g. Bash→Shell, Vue.js→Vue), not substring matching.
-Preview has themes, range/view selection, expanded language/activity/year tables and copyable README
-snippet with native `<details>`/`<picture>`; images cannot have JS interaction on GitHub.
-All fresh/stale/unavailable source timestamps must be visible and clearly labelled.
-
-`src/app.ts` owns shared HTTP routes. `src/snapshot.ts` creates the common provider
-cache. `src/index.ts` adapts Durable Objects; `src/node.ts` and
-`src/node-storage.ts` adapt Node HTTP and private SQLite storage. Tests and
-documentation must cover both runtimes.
-Persistent Durable Object storage retains separate core, activity and WakaTime
-last-success records without TTL deletion. GitHub scope keys are isolated while
-the original profile object/WakaTime range keys remain stable. Fresh TTL defaults6h;
-failure cooldown15m, extended by upstream rate-limit/reset headers. Activity
-collectionVersion2 includes review-only repositories: older saved activity is
-served as stale and refreshed in its existing key, preserving the original
-last-good data and success timestamp if refresh fails. Background refresh returns existing
-data quickly; on cold start wait for initial refresh. Single profile DO coalesces
-concurrent refreshes. No scheduled trigger is added in this local-first iteration.
+See [reference comparison](github-collection-plan.md) for semantics and defaults.

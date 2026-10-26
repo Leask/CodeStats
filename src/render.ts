@@ -4,28 +4,136 @@ import type {
     SourceSnapshot,
     StatsSnapshot,
 } from './types';
+import { LANGUAGE_ICONS, languageIcon } from './language-icons';
+import { CLOCK_ICON, GITHUB_ICON, METRIC_ICONS } from './ui-icons';
+import { profileRank } from './rank';
 
 const ALIASES: Record<string, string> = {
     bash: 'shell',
     zsh: 'shell',
     sh: 'shell',
+    fish: 'shell',
+    ksh: 'shell',
+    dash: 'shell',
     'shell script': 'shell',
-    'vue.js': 'vue',
-    'vuejs': 'vue',
     docker: 'dockerfile',
-    cpp: 'c++',
+    c: 'c/c++',
+    'c++': 'c/c++',
+    cpp: 'c/c++',
     csharp: 'c#',
     'c sharp': 'c#',
     'objective c': 'objective-c',
-    'objective c++': 'objective-c++',
-    'jsx': 'javascript',
-    'tsx': 'typescript',
-    'yml': 'yaml',
+    'objective c++': 'objective-c',
+    'objective-c++': 'objective-c',
+    javascript: 'javascript/typescript',
+    typescript: 'javascript/typescript',
+    js: 'javascript/typescript',
+    ts: 'javascript/typescript',
+    jsx: 'javascript/typescript',
+    tsx: 'javascript/typescript',
+    'javascript react': 'javascript/typescript',
+    'typescript react': 'javascript/typescript',
+    markdown: 'markdown/text',
+    text: 'markdown/text',
+    'plain text': 'markdown/text',
+    mdx: 'markdown/text',
+    restructuredtext: 'markdown/text',
+    rst: 'markdown/text',
+    html: 'html/css',
+    css: 'html/css',
+    scss: 'html/css',
+    sass: 'html/css',
+    less: 'html/css',
+    stylus: 'html/css',
+    postcss: 'html/css',
+    pcss: 'html/css',
+    json: 'config',
+    jsonc: 'config',
+    'json with comments': 'config',
+    tsconfig: 'config',
+    'sublime text config': 'config',
+    xml: 'config',
+    xslt: 'config',
+    yaml: 'config',
+    yml: 'config',
+    toml: 'config',
+    ini: 'config',
+    cython: 'python',
+    'jupyter notebook': 'python',
+    ipython: 'python',
+    glsl: 'shaders',
+    hlsl: 'shaders',
+    metal: 'shaders',
+    shaderlab: 'shaders',
+    wgsl: 'shaders',
+    cg: 'shaders',
+    vue: 'html/css',
+    'vue.js': 'html/css',
+    vuejs: 'html/css',
+    svelte: 'html/css',
+    astro: 'html/css',
+    xhtml: 'html/css',
+    htm: 'html/css',
+    pug: 'html/css',
+    jade: 'html/css',
+    jinja: 'html/css',
+    jinja2: 'html/css',
+    mustache: 'html/css',
+    handlebars: 'html/css',
+    ejs: 'html/css',
+    erb: 'html/css',
+    twig: 'html/css',
+    smarty: 'html/css',
+    mako: 'html/css',
+    liquid: 'html/css',
+    blade: 'html/css',
+    'go template': 'html/css',
+    'html+erb': 'html/css',
+    'html+django': 'html/css',
+    viml: 'vim script',
+    'perl 6': 'raku',
+    perl6: 'raku',
+    gdscript3: 'gdscript',
+    'actionscript 3': 'actionscript',
+    'nginx configuration file': 'nginx',
+    mysql: 'sql',
+    'transact-sql': 'sql',
+    others: 'other',
     'golang': 'go',
-    'text': 'text',
+    plpgsql: 'sql',
+    plsql: 'sql',
+    'pl/sql': 'sql',
+    tsql: 'sql',
+    't-sql': 'sql',
+    sqlpl: 'sql',
+};
+
+const GROUP_NAMES: Record<string, string> = {
+    'c/c++': 'C/C++',
+    'javascript/typescript': 'JavaScript/TypeScript',
+    'markdown/text': 'Markdown/Text',
+    config: 'JSON/YAML/TOML/INI',
+    python: 'Python',
+    'html/css': 'HTML/CSS',
+    shaders: 'Shaders',
+    'vim script': 'Vim Script',
+    raku: 'Raku',
+    gdscript: 'GDScript',
+    actionscript: 'ActionScript',
+    nginx: 'Nginx',
+    shell: 'Shell',
+    'objective-c': 'Objective-C',
+    sql: 'SQL',
 };
 
 const COLORS: Record<string, string> = {
+    'javascript/typescript': '#f1df6a',
+    'c/c++': '#e49ac9',
+    'markdown/text': '#aab7ce',
+    'html/css': '#e79980',
+    'objective-c': '#438eff',
+    config: '#e0cb8b',
+    shaders: '#b594ed',
     javascript: '#f1df6a',
     typescript: '#63a3f3',
     python: '#89b5ed',
@@ -92,7 +200,7 @@ const ACTIVITY_METRICS = [
     {
         source: 'githubActivity', key: 'allTimeContributedRepositories',
         label: 'Repos contributed to', period: 'lifetime',
-        definition: 'Distinct currently non-owned repositories reached by visible '
+        definition: 'Distinct repositories reached by visible '
             + 'commit, issue, pull request, review and repository-creation contributions '
             + 'across collected account years. Deduplicated across years and '
             + 'contribution types; review-only repositories are included.',
@@ -107,8 +215,7 @@ const ACTIVITY_METRICS = [
     {
         source: 'githubActivity', key: 'contributedRepositories',
         label: 'Repos contributed to', period: 'recent',
-        definition: 'GitHub recent-year repositoriesContributedTo count, excluding '
-            + 'currently user-owned repositories, for commit, issue, pull request, review '
+        definition: 'GitHub recent-year repositoriesContributedTo count for commit, issue, pull request, review '
             + 'and repository-creation contributions. GitHub eligibility and '
             + 'visibility rules apply.',
     },
@@ -131,7 +238,7 @@ const ACTIVITY_METRICS = [
     {
         source: 'github', key: 'forks', label: 'Repository forks',
         period: 'current',
-        definition: 'Current fork counts received by the owned non-fork '
+        definition: 'Current fork counts received by selected original '
             + 'repositories analyzed for the separate language-byte source.',
     },
 ] as const;
@@ -161,16 +268,30 @@ function shortened(value: string, maximum: number): string {
     return value.length > maximum ? value.slice(0, maximum - 1) + '…' : value;
 }
 
+function profileLine(value: string): string {
+    let units = 0;
+    let result = '';
+    for (const char of value) {
+        units += /[^\u0000-\u00ff]/.test(char) ? 1 : 0.62;
+        if (units > 55) return result + '…';
+        result += char;
+    }
+    return result;
+}
+
 function canonical(name: string): string {
     const normalized = name.trim().toLowerCase();
     return ALIASES[normalized] ?? normalized;
 }
 
 function safeColor(value: string | undefined, name: string): string {
+    const key = canonical(name);
+    if (GROUP_NAMES[key] && COLORS[key]) {
+        return COLORS[key];
+    }
     if (value && /^#[0-9a-f]{6}$/i.test(value)) {
         return value;
     }
-    const key = canonical(name);
     if (COLORS[key]) {
         return COLORS[key];
     }
@@ -193,18 +314,106 @@ function finite(value: number): number {
     return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
-/** Join by explicit language aliases; never mix the two denominators. */
+/** Alternate ranked sources, keeping each already-merged row only once. */
+function alternateRanks<T>(first: T[], second: T[]): T[] {
+    const result: T[] = [];
+    const seen = new Set<T>();
+    for (let index = 0; index < Math.max(first.length, second.length); index++) {
+        for (const row of [first[index], second[index]]) {
+            if (row !== undefined && !seen.has(row)) {
+                seen.add(row);
+                result.push(row);
+            }
+        }
+    }
+    return result;
+}
+
+/** Pick both sources' leaders, then display them with a complete remainder. */
+export function selectLanguages(
+    rows: LanguageRow[],
+    sort: CardOptions['sort'] = 'time',
+    limit = 10,
+    codeAvailable = rows.some(row => row.codeBytes !== null),
+): LanguageRow[] {
+    const count = Math.min(100, Math.max(1, Math.floor(limit) || 10));
+    const byCode = (a: LanguageRow, b: LanguageRow) =>
+        (b.codeBytes ?? -1) - (a.codeBytes ?? -1)
+        || b.seconds - a.seconds || a.name.localeCompare(b.name);
+    const byTime = (a: LanguageRow, b: LanguageRow) =>
+        b.seconds - a.seconds || byCode(a, b);
+    const candidates = rows.filter(row =>
+        !['other', 'others'].includes(row.name.trim().toLowerCase()));
+    const selected = alternateRanks(
+        [...candidates].sort(byTime), [...candidates].sort(byCode),
+    ).slice(0, count - 1);
+    const included = new Set(selected);
+    const remainder = rows.filter(row => !included.has(row));
+    if (sort !== 'alternating') {
+        selected.sort(sort === 'name'
+            ? (a, b) => a.name.localeCompare(b.name)
+            : sort === 'code' ? byCode : byTime);
+    }
+    if (remainder.length) {
+        selected.push({
+            name: 'Others', color: '#8791a3',
+            seconds: remainder.reduce((sum, row) => sum + row.seconds, 0),
+            timePercent: remainder.reduce((sum, row) => sum + row.timePercent, 0),
+            codeBytes: codeAvailable ? remainder.reduce(
+                (sum, row) => sum + (row.codeBytes ?? 0), 0,
+            ) : null,
+            codePercent: codeAvailable ? remainder.reduce(
+                (sum, row) => sum + (row.codePercent ?? 0), 0,
+            ) : null,
+        });
+    }
+    return selected;
+}
+
+/** Balance displayed percentages at their precision; preserve raw measures. */
+export function displayLanguages(rows: LanguageRow[], digits: 1 | 2): LanguageRow[] {
+    const result = rows.map(row => ({ ...row }));
+    const other = rows.findIndex(row => row.name === 'Others');
+    if (other < 0) return result;
+    const scale = 10 ** digits;
+    const target = 100 * scale;
+    const named = rows.map((_, index) => index).filter(index => index !== other);
+    for (const field of ['timePercent', 'codePercent'] as const) {
+        const values = rows.map(row => row[field]);
+        if (values.some(value => value === null)) continue;
+        const total = values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+        // Missing, empty or incomplete data must not be made to look complete.
+        if (Math.abs(total - 100) > 0.000001) continue;
+        const exact = values.map(value => (value ?? 0) * scale);
+        const units = exact.map(value => Math.round(value));
+        let used = named.reduce((sum, index) => sum + units[index], 0);
+        // Rare rounding overflow: remove units from the most rounded-up row.
+        while (used > target) {
+            const index = named.reduce((best, current) =>
+                units[current] - exact[current] > units[best] - exact[best]
+                    ? current : best);
+            units[index]--;
+            used--;
+        }
+        units[other] = target - used;
+        result.forEach((row, index) => { row[field] = units[index] / scale; });
+    }
+    return result;
+}
+
+/** Sum explicit language families before ranking; keep both denominators. */
 export function joinLanguages(
     snapshot: StatsSnapshot,
-    sort: CardOptions['sort'] = 'time',
+    sort: CardOptions['sort'] = 'alternating',
 ): LanguageRow[] {
     const github = snapshot.github.data;
+    const totalSeconds = snapshot.wakatime.data?.totalSeconds ?? 0;
     const code = new Map<string, { name: string; bytes: number; color: string }>();
     for (const language of github?.languages ?? []) {
         const key = canonical(language.name);
         const previous = code.get(key);
         code.set(key, {
-            name: language.name,
+            name: GROUP_NAMES[key] ?? language.name,
             bytes: finite(language.bytes) + (previous?.bytes ?? 0),
             color: safeColor(language.color, language.name),
         });
@@ -217,10 +426,12 @@ export function joinLanguages(
         const previous = result.get(key);
         const bytes = match?.bytes ?? 0;
         result.set(key, {
-            name: previous?.name ?? language.name,
+            name: GROUP_NAMES[key] ?? previous?.name ?? language.name,
             color: safeColor(match?.color, language.name),
             seconds: finite(language.seconds) + (previous?.seconds ?? 0),
-            timePercent: finite(language.percent) + (previous?.timePercent ?? 0),
+            timePercent: (totalSeconds > 0
+                ? 100 * finite(language.seconds) / totalSeconds : 0)
+                + (previous?.timePercent ?? 0),
             codeBytes: knownCode ? bytes : null,
             codePercent: knownCode ? (
                 github.totalBytes > 0 ? 100 * bytes / github.totalBytes : 0
@@ -240,18 +451,23 @@ export function joinLanguages(
             });
         }
     }
-    return [...result.values()].sort((a, b) => {
+    const rows = [...result.values()];
+    const byCode = (a: LanguageRow, b: LanguageRow) =>
+        (b.codeBytes ?? -1) - (a.codeBytes ?? -1)
+        || b.seconds - a.seconds || a.name.localeCompare(b.name);
+    const byTime = (a: LanguageRow, b: LanguageRow) =>
+        b.seconds - a.seconds || byCode(a, b);
+    if (sort === 'alternating') {
+        return alternateRanks([...rows].sort(byTime), [...rows].sort(byCode));
+    }
+    return rows.sort((a, b) => {
         if (sort === 'name') {
             return a.name.localeCompare(b.name);
         }
         if (sort === 'code') {
-            return (b.codePercent ?? -1) - (a.codePercent ?? -1)
-                || b.timePercent - a.timePercent
-                || a.name.localeCompare(b.name);
+            return byCode(a, b);
         }
-        return b.seconds - a.seconds
-            || (b.codePercent ?? -1) - (a.codePercent ?? -1)
-            || a.name.localeCompare(b.name);
+        return byTime(a, b);
     });
 }
 
@@ -264,6 +480,16 @@ function duration(seconds: number): string {
     const minutes = Math.floor(finite(seconds) / 60);
     const hours = Math.floor(minutes / 60);
     return `${hours.toLocaleString('en-US')}h ${minutes % 60}m`;
+}
+
+/** Age of the last successful refresh when this static card was generated. */
+export function refreshAge(lastSuccessAt: string | null, at: string): string {
+    const difference = Date.parse(at) - Date.parse(lastSuccessAt ?? '');
+    if (!Number.isFinite(difference)) return 'not refreshed';
+    const minutes = Math.max(0, Math.floor(difference / 60_000));
+    const remainder = minutes % 60;
+    return `${number(Math.floor(minutes / 60))} hr, ${remainder} `
+        + `min${remainder === 1 ? '' : 's'} ago`;
 }
 
 function date(value: string | null): string {
@@ -282,6 +508,27 @@ const RANGE_LABELS = {
     last_7_days: 'LAST 7 DAYS',
     last_30_days: 'LAST 30 DAYS',
 };
+
+/** Describe the saved data's span, using rounded years/months/days. */
+export function timeRangeLabel(snapshot: StatsSnapshot): string {
+    const source = snapshot.wakatime;
+    const data = source.data;
+    const since = data?.rangeLabel?.match(/^since\s+(.+)$/i)?.[1];
+    const start = Date.parse(data?.start ?? (since ? `${since} UTC` : ''));
+    const end = Date.parse(data?.end ?? source.lastSuccessAt ?? '');
+    let days = Number.isFinite(start) && Number.isFinite(end) && end >= start
+        ? Math.max(1, (end - start) / 86_400_000
+            + (data?.end && /^\d{4}-\d{2}-\d{2}$/.test(data.end) ? 1 : 0))
+        : snapshot.range === 'last_7_days' ? 7
+            : snapshot.range === 'last_30_days' ? 30 : null;
+    if (days === null) return 'Recent activity';
+    days = Math.max(1, Math.round(days));
+    const months = Math.round(days / (365.2425 / 12));
+    const unit = months >= 12 ? 'year' : days >= 28 ? 'month' : 'day';
+    const value = unit === 'year' ? Math.max(1, Math.round(days / 365.2425))
+        : unit === 'month' ? Math.max(1, months) : days;
+    return `Recent ${value} ${unit}${value === 1 ? '' : 's'}`;
+}
 
 function sourceLine<T>(name: string, source: SourceSnapshot<T>): string {
     const state = source.status === 'fresh' ? 'fresh'
@@ -310,70 +557,114 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const transparentStyles = transparent
         ? `:root{${cssVariables(lightPalette)}}@media(prefers-color-scheme:dark){:root{${cssVariables(darkPalette)}}}`
         : '';
-    const allRows = joinLanguages(snapshot, options.sort);
-    const limit = Math.min(100, Math.max(1, Math.floor(options.limit) || 8));
-    const rows = allRows.slice(0, limit);
+    const allRows = joinLanguages(snapshot);
+    const rows = displayLanguages(selectLanguages(
+        allRows, options.sort, options.limit, snapshot.github.data !== null,
+    ), 1);
     const activity = options.view === 'activity';
     const empty = rows.length === 0;
-    const bodyHeight = activity ? 448 : Math.max(96, rows.length * 39 + 44);
-    const footerY = 257 + bodyHeight;
-    const height = footerY + (activity ? 145 : 125);
+    const bodyHeight = activity ? 448 : Math.max(96, rows.length * 39 + 24);
+    const metricRowHeight = 64;
+    const contentOffset = 61;
+    const footerY = 257 + contentOffset + bodyHeight;
+    const height = footerY + 40;
     const github = snapshot.github.data;
     const activitySource = githubActivitySource(snapshot);
     const githubActivity = activitySource.data;
     const waka = snapshot.wakatime.data;
     const username = github?.username ?? waka?.username
         ?? githubActivity?.username ?? 'Your profile';
-    const sources: Array<SourceSnapshot<unknown>> = [snapshot.github, snapshot.wakatime];
-    if (activity) sources.push(activitySource);
-    const stale = sources.some((source) => source.status === 'stale');
-    const complete = sources.every((source) => source.data !== null
-        && source.status !== 'unavailable');
-    const label = stale ? 'SAVED SNAPSHOT' : complete ? 'FRESH SNAPSHOT'
-        : sources.some((source) => source.data !== null) ? 'PARTIAL DATA' : 'WAITING FOR DATA';
-    const statusColor = stale || !complete ? '#d7ac62' : palette.time;
     const title = `${username} · coding footprint`;
     const allVisible = github?.visibility === 'all';
     const activityAllVisible = githubActivity?.visibility === 'all';
-    const subtitle = activity
-        ? !githubActivity ? 'Personal GitHub activity, with source-specific scope.'
-            : activityAllVisible
-            ? 'Personal activity across token-visible GitHub repositories.'
-            : 'Personal activity across public GitHub repositories.'
-        : 'Time spent building. Code measured on GitHub.';
-    const merged = github && github.pullRequests > 0
-        ? `${(100 * github.mergedPullRequests / github.pullRequests).toFixed(1)}%`
-        : github ? '—' : '—';
+    const fullName = shortened(github?.name ?? username, 36);
+    const profileDescription = github?.bio?.trim()
+        || github?.profileStatus?.trim() || '';
+    const rank = profileRank(github, githubActivity);
     const metrics = [
         {
-            value: waka ? `${number(Math.floor(waka.totalSeconds / 3600))}h` : '—',
-            label: 'CODING TIME',
-            detail: waka ? `${RANGE_LABELS[snapshot.range]} · includes Other` : 'WakaTime unavailable',
+            id: 'coding-time',
+            value: waka ? number(Math.floor(waka.totalSeconds / 3600)) : '—',
+            label: 'CODING HOURS',
         },
         {
+            id: 'calendar-contributions',
+            value: number(githubActivity?.allTimeContributions),
+            label: 'CALENDAR CONTRIBUTIONS',
+        },
+        {
+            id: 'repositories',
             value: number(allVisible ? github?.repositories : github?.publicRepositories),
-            label: allVisible ? 'VISIBLE REPOSITORIES' : 'PUBLIC REPOSITORIES',
-            detail: github ? `${number(github.analyzedRepositories)} non-forks analyzed` : 'GitHub unavailable',
+            label: 'REPOSITORIES',
         },
         {
+            id: 'commits-indexed', value: number(githubActivity?.commits),
+            label: 'COMMITS INDEXED',
+        },
+        {
+            id: 'pull-requests', value: number(github?.pullRequests),
+            label: 'PULL REQUESTS',
+        },
+        {
+            id: 'issues', value: number(github?.issues),
+            label: 'ISSUES',
+        },
+        {
+            id: 'followers', value: number(github?.followers),
+            label: 'FOLLOWERS',
+        },
+        {
+            id: 'stars',
             value: number(github?.stars), label: 'STARS RECEIVED',
-            detail: `Owned ${allVisible ? 'visible' : 'public'} non-fork repositories`,
-        },
-        {
-            value: merged,
-            label: allVisible ? 'VISIBLE PRS MERGED' : 'PUBLIC PRS MERGED',
-            detail: github ? `${number(github.mergedPullRequests)} of ${number(github.pullRequests)} · lifetime` : 'GitHub unavailable',
         },
     ];
     const text = (
         x: number, y: number, value: unknown, size = 12,
         fill = palette.fg, extra = '',
     ) => `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}" ${extra}>${xml(value)}</text>`;
+    const avatar = github?.avatarDataUri;
+    const embeddedAvatar = typeof avatar === 'string'
+        && /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(avatar);
+    const nameUnits = [...fullName].reduce((sum, char) =>
+        sum + (/[^\u0000-\u00ff]/.test(char) ? 1 : 0.62), 0);
+    const nameSize = Math.min(26, 680 / (nameUnits + (username.length + 1) * 0.42));
+    const profileHeader = '<g data-profile-header="true">'
+        + '<defs><clipPath id="avatar-clip">'
+        + '<circle cx="66" cy="78" r="34"/></clipPath></defs>'
+        + (embeddedAvatar
+            ? `<image data-github-avatar="true" x="32" y="44" width="68" height="68" `
+                + `href="${xml(avatar)}" clip-path="url(#avatar-clip)" `
+                + 'preserveAspectRatio="xMidYMid slice"/>'
+            : `<circle cx="66" cy="78" r="34" fill="${palette.panel}"/>`
+                + text(66, 89, username.slice(0, 1).toUpperCase(), 30,
+                    palette.muted, 'text-anchor="middle"'))
+        + `<text data-profile-name="true" x="116" y="66" font-size="${nameSize.toFixed(2)}" `
+        + `fill="${palette.fg}" font-weight="650">${xml(fullName)}`
+        + `<tspan dx="12" font-size="${(nameSize * 0.68).toFixed(2)}" `
+        + `fill="${palette.muted}" font-weight="400">@${xml(username)}</tspan></text>`
+        + '<g data-profile-description="true"><title>' + xml(profileDescription) + '</title>'
+        + text(116, 87, profileLine(profileDescription), 12, palette.muted) + '</g>'
+        + '<g data-profile-rank="true"><title>Estimated percentile from the '
+        + 'GitHub Stats Extended weighted model: commits, PRs, issues, recent '
+        + 'review contributions, owned stars and followers.</title>'
+        + (rank ? text(116, 108, 'Top '
+            + `${rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2)}% · ${rank.level}`,
+        12, palette.time) : '') + '</g></g>';
     const metricMarkup = metrics.map((metric, index) => {
-        const x = 32 + index * 211;
-        return text(x, 150, metric.value, 29, palette.fg, 'font-weight="650"')
-            + text(x, 173, metric.label, 10, palette.muted, 'letter-spacing="1"')
-            + text(x, 192, metric.detail, 10, palette.muted);
+        const x = 32 + index % 4 * 211;
+        const y = 166 + Math.floor(index / 4) * metricRowHeight;
+        const valueX = x + 42;
+        const size = Math.min(29, Math.floor(142 / (metric.value.length * 0.62)));
+        const iconSize = 36;
+        // Include the label baseline and its descenders in the text block.
+        const iconY = y + (26 - size - iconSize) / 2;
+        return `<g data-summary-metric="${metric.id}">`
+            + `<svg data-summary-icon="${metric.id}" x="${x}" y="${iconY}" `
+            + `width="${iconSize}" height="${iconSize}" viewBox="0 0 16 16" aria-hidden="true" `
+            + `fill="${palette.muted}"><path d="${METRIC_ICONS[metric.id]}"/></svg>`
+            + text(valueX, y, metric.value, size, palette.fg, 'font-weight="650"')
+            + text(valueX, y + 23, metric.label, 10, palette.muted, 'letter-spacing="1"')
+            + '</g>';
     }).join('');
     let body = '';
     if (activity) {
@@ -414,7 +705,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             + text(32, 311, 'Existing saved data will appear here whenever a source is temporarily unavailable.', 12, palette.muted);
     } else {
         body = text(32, 258, 'LANGUAGE', 10, palette.muted, 'letter-spacing="1.1"')
-            + text(225, 258, `WAKATIME · ${RANGE_LABELS[snapshot.range]}`, 10, palette.time, 'letter-spacing="1"')
+            + text(225, 258, timeRangeLabel(snapshot).toUpperCase(), 10, palette.time, 'letter-spacing="1"')
             + text(558, 258, 'GITHUB · CODE BYTES', 10, palette.code, 'letter-spacing="1"');
         body += rows.map((row, index) => {
             const y = 289 + index * 39;
@@ -423,9 +714,12 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             const codeWidth = Math.min(100, row.codePercent ?? 0) * 2.10;
             return `<g><title>${xml(row.name)}: WakaTime ${row.timePercent.toFixed(2)}%; `
                 + `GitHub ${row.codePercent === null ? 'not comparable' : row.codePercent.toFixed(2) + '%'}</title>`
-                + `<circle cx="37" cy="${y - 4}" r="4" fill="${row.color}"/>`
-                + text(49, y, name, 13, palette.fg, 'font-weight="500"')
-                + text(49, y + 14, waka ? duration(row.seconds) : '—', 10, palette.muted)
+                + `<svg data-language-icon="${xml(row.name)}" x="32" y="${y - 10}" `
+                + `width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" `
+                + `fill="${row.color}"><path fill-rule="${row.name === 'SQL' ? 'evenodd' : 'nonzero'}" `
+                + `d="${xml(languageIcon(row.name, LANGUAGE_ICONS))}"/></svg>`
+                + text(64, y, name, 13, palette.fg, 'font-weight="500"')
+                + text(64, y + 14, waka ? duration(row.seconds) : '—', 10, palette.muted)
                 + `<rect x="225" y="${y - 10}" width="249" height="7" rx="3.5" fill="${palette.track}"/>`
                 + `<rect x="225" y="${y - 10}" width="${timeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.time}"/>`
                 + text(523, y, waka ? `${row.timePercent.toFixed(1)}%` : '—', 11, palette.time, 'text-anchor="end"')
@@ -434,11 +728,6 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
                 + text(841, y, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, 11, palette.code, 'text-anchor="end"')
                 + '</g>';
         }).join('');
-        const remaining = allRows.length - rows.length;
-        body += text(32, 292 + rows.length * 39,
-            remaining > 0 ? `+ ${remaining} more language mappings in the full view`
-                : `${allRows.length} language mappings · explicit aliases only`,
-            11, palette.muted);
     }
     const rangeEnd = waka?.end ? ` · through ${waka.end.slice(0, 10)}`
         : waka?.rangeLabel ? ` · ${waka.rangeLabel}` : '';
@@ -448,8 +737,11 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `<title id="title">${xml(title)}</title>`
         + '<desc id="desc">WakaTime time shares and GitHub repository language byte shares have separate denominators. '
         + xml(`${sourceLine('GitHub', snapshot.github)}. ${sourceLine('WakaTime', snapshot.wakatime)}.`)
-        + (activity ? xml(` ${sourceLine('GitHub activity', activitySource)}. `
-            + `Activity scope: ${githubActivity?.scope ?? 'unavailable'}. `
+        + xml(` WakaTime ${RANGE_LABELS[snapshot.range].toLowerCase()}${rangeEnd}${through}. `
+            + 'Time share and code share have separate denominators. '
+            + 'GitHub counts repository bytes, not individual authorship.')
+        + xml(` ${sourceLine('GitHub activity', activitySource)}. `)
+        + (activity ? xml(`Activity scope: ${githubActivity?.scope ?? 'unavailable'}. `
             + `Repository byte scope: ${github?.scope ?? 'unavailable'}. `
             + 'Private repository names are never included. '
             + ACTIVITY_METRICS.map((metric) => `${metric.label}: ${metric.definition}`).join(' ')) : '')
@@ -458,21 +750,24 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + '.numeric{font-variant-numeric:tabular-nums}</style>'
         + `<rect x=".5" y=".5" width="879" height="${height - 1}" rx="22" `
         + `fill="${transparent ? 'none' : palette.bg}" stroke="${palette.line}"/>`
-        + text(32, 32, 'CODESTATS', 10, palette.muted, 'font-weight="700" letter-spacing="2.3"')
-        + `<circle cx="726" cy="29" r="3" fill="${statusColor}"/>`
-        + text(738, 33, label, 9, statusColor, 'font-weight="600" letter-spacing=".6"')
-        + text(32, 74, shortened(username, 44), 30, palette.fg, 'font-weight="650"')
-        + text(32, 99, subtitle, 13, palette.muted)
+        + '<g transform="translate(0 -20)">'
+        + profileHeader
         + metricMarkup
-        + `<path d="M32 217H848" stroke="${palette.line}"/>`
-        + body
+        + `<path d="M32 ${217 + contentOffset}H848" stroke="${palette.line}"/>`
+        + `<g transform="translate(0 ${contentOffset})">${body}</g>`
         + `<path d="M32 ${footerY}H848" stroke="${palette.line}"/>`
-        + text(32, footerY + 24, 'Time share ≠ code share. GitHub counts bytes, not lines, time, or individual authorship.', 11, palette.muted)
-        + text(32, footerY + 44, `WakaTime ${RANGE_LABELS[snapshot.range].toLowerCase()}${rangeEnd}${through}. Other has no GitHub equivalent.`, 10, palette.muted)
-        + text(32, footerY + 68, sourceLine('GitHub', snapshot.github), 10, palette.muted)
-        + text(32, footerY + 87, sourceLine('WakaTime', snapshot.wakatime), 10, palette.muted)
-        + (activity ? text(32, footerY + 106, sourceLine('GitHub activity', activitySource), 10, palette.muted) : '')
-        + text(848, footerY + (activity ? 129 : 109), 'CODESTATS / 01', 8, palette.muted, 'text-anchor="end" letter-spacing="1.4"')
+        + `<g data-refresh-times="true"><svg x="32" y="${footerY + 18}" width="14" height="14" `
+        + `viewBox="0 0 16 16" fill="${palette.muted}" aria-hidden="true"><path d="${CLOCK_ICON}"/></svg>`
+        + text(52, footerY + 29, `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)} | `
+            + `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`, 10, palette.muted)
+        + '</g><a data-project-credit="true" href="https://github.com/Leask/CodeStats" '
+        + 'target="_blank" rel="noopener noreferrer">'
+        + `<svg x="638" y="${footerY + 18}" width="14" height="14" viewBox="0 0 16 16" `
+        + `fill="${palette.muted}" aria-hidden="true"><path d="${GITHUB_ICON}"/></svg>`
+        + `<text x="848" y="${footerY + 29}" font-size="10" `
+        + `fill="${palette.muted}" text-anchor="end">Power by github.com/Leask/`
+        + `<tspan fill="${palette.time}" font-weight="650">CodeStats</tspan></text>`
+        + '</a></g>'
         + '</svg>';
 }
 
@@ -533,8 +828,8 @@ margin-left:auto;margin-right:20px;font-size:11px}.detail-body{padding:0 20px 20
 table{border-collapse:collapse;width:100%;font-size:12px}th{color:var(--muted);font-size:10px;text-transform:uppercase;
 letter-spacing:.8px;text-align:left;font-weight:500;padding:12px 8px;background:var(--panel);position:sticky;top:0}
 td{padding:10px 8px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
-td:not(:first-child),th:not(:first-child){text-align:right}.dot{width:7px;height:7px;display:inline-block;
-border-radius:50%;margin-right:9px}.detail-note{color:var(--muted);font-size:11px;margin:0 0 12px}
+td:not(:first-child),th:not(:first-child){text-align:right}.language-icon{width:16px;height:16px;display:inline-block;
+vertical-align:-3px;margin-right:9px}.detail-note{color:var(--muted);font-size:11px;margin:0 0 12px}
 .metric-definitions{font-size:11px;color:var(--muted);margin:16px 0 0}
 .metric-definitions dt{color:var(--text);font-weight:500;margin-top:10px}
 .metric-definitions dd{margin:2px 0 0}.activity-tables{display:grid;grid-template-columns:2fr 1fr;gap:20px}
@@ -576,12 +871,13 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <div class="control"><label for="view">View</label><select id="view"><option value="overview">Overview</option>
 <option value="languages">Language detail</option><option value="activity">GitHub activity</option></select></div>
 <div class="control"><label for="sort">Language order</label><select id="sort"><option value="time">Coding time first</option>
+<option value="alternating">Selection order</option>
 <option value="code">GitHub code first</option><option value="name">Alphabetical</option></select></div>
 </form>
-<section class="source-panel"><h2 class="section-title">Source health</h2>
-<div class="source-state"><div class="source-head"><span>GitHub</span><span class="badge" id="github-status">Loading</span></div>
+<section class="source-panel"><h2 class="section-title">Two upstream services</h2><p class="detail-note">GitHub has two cached datasets; WakaTime has one.</p>
+<div class="source-state"><div class="source-head"><span>GitHub · repositories</span><span class="badge" id="github-status">Loading</span></div>
 <small id="github-time">Waiting for source</small><small id="github-error"></small></div>
-<div class="source-state"><div class="source-head"><span>GitHub activity</span><span class="badge" id="githubActivity-status">Loading</span></div>
+<div class="source-state"><div class="source-head"><span>GitHub · activity</span><span class="badge" id="githubActivity-status">Loading</span></div>
 <small id="githubActivity-time">Waiting for source</small><small id="githubActivity-error"></small></div>
 <div class="source-state"><div class="source-head"><span>WakaTime</span><span class="badge" id="wakatime-status">Loading</span></div>
 <small id="wakatime-time">Waiting for source</small><small id="wakatime-error"></small></div></section>
@@ -590,9 +886,9 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <div class="preview-label"><span>README preview</span><a id="json-link" href="/api/stats?range=all_time" target="_blank" rel="noopener">View source JSON ↗</a></div>
 <div class="card-stage" id="stage"><div class="loading" id="loading">Fetching your first snapshot<span>Connecting GitHub and WakaTime.</span></div>
 <img id="card" alt="Unified WakaTime and GitHub profile statistics" hidden></div>
-<p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures language bytes in owned public non-fork repositories.</p>
-<details id="language-details"><summary>All language mappings <small id="language-count">Waiting for data</small></summary>
-<div class="detail-body"><p class="detail-note">Each percentage keeps its own denominator. A dash means no comparable data, not zero. Aliases such as Bash → Shell are matched explicitly.</p>
+<p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures current repository language bytes, not personally authored lines.</p>
+<details id="language-details"><summary>Language breakdown <small id="language-count">Waiting for data</small></summary>
+<div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating WakaTime and GitHub ranks, then ordered by coding time by default. Others includes every remaining group and unclassified time. Both source totals are fully represented, with separate denominators. Raw values remain in the source JSON. A dash means unavailable data.</p>
 <div class="table-wrap"><table><thead><tr><th>Language</th><th>Time</th><th>Time share</th><th>Code share</th></tr></thead>
 <tbody id="language-body"></tbody></table></div></div></details>
 <details id="activity-details"><summary>GitHub activity <small id="activity-summary">Waiting for data</small></summary>
@@ -604,11 +900,11 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <section><h3>Contribution calendar by year</h3><div class="table-wrap"><table>
 <thead><tr><th>Year</th><th>Contributions</th></tr></thead><tbody id="contribution-years"></tbody></table></div></section></div>
 <details><summary>How these counts are defined</summary><div class="detail-body">
-<p class="detail-note">These counts describe different actions and periods; they are not added together. GitHub search, contribution eligibility, token permissions, and organization access can limit coverage. Language bytes remain a separate owned non-fork repository measure.</p>
+<p class="detail-note">These counts describe different actions and periods; they are not added together. GitHub search, contribution eligibility, token permissions, and organization access can limit coverage. Language bytes describe current repository content, including other authors.</p>
 <dl class="metric-definitions" id="activity-definitions"></dl></div></details></div></details>
 <details id="readme-details"><summary>Add to your GitHub README <small>Native expandable sections</small></summary>
-<div class="detail-body"><label for="public-url">Public Worker URL</label>
-<input id="public-url" type="url" value="https://YOUR-WORKER.workers.dev" aria-describedby="url-note">
+<div class="detail-body"><label for="public-url">Public HTTPS URL</label>
+<input id="public-url" type="url" value="https://stats.example.com" aria-describedby="url-note">
 <div class="snippet-head"><p id="url-note">Replace this after deployment. Localhost images cannot load on GitHub.</p>
 <button class="button" id="copy" type="button">Copy Markdown</button></div><pre id="snippet"></pre></div></details>
 <section class="explain"><div><b>Two honest percentages</b><p>Time share is WakaTime's tracked activity, including Other. Code share is GitHub's language bytes. Neither is an individual authorship or skill score.</p></div>
@@ -626,6 +922,12 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     let generation = 0;
     const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
     const aliases = ${JSON.stringify(ALIASES)};
+    const groupNames = ${JSON.stringify(GROUP_NAMES)};
+    const alternateRanks = ${alternateRanks.toString()};
+    const selectLanguages = ${selectLanguages.toString()};
+    const displayLanguages = ${displayLanguages.toString()};
+    const languageIcons = ${JSON.stringify(LANGUAGE_ICONS)};
+    const languageIcon = ${languageIcon.toString()};
     const colors = ${JSON.stringify(COLORS)};
     const activityMetrics = ${JSON.stringify(ACTIVITY_METRICS)};
     const activityPeriods = ${JSON.stringify(ACTIVITY_PERIODS)};
@@ -636,7 +938,9 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     const day = (value) => value && !isNaN(Date.parse(value))
         ? new Date(value).toISOString().slice(0, 10) : 'date unavailable';
     const normalize = (name) => aliases[name.trim().toLowerCase()] || name.trim().toLowerCase();
-    const safeColor = (color, name) => /^#[0-9a-f]{6}$/i.test(color || '') ? color : colors[normalize(name)] || '#9ebcf0';
+    const safeColor = (color, name) => groupNames[normalize(name)] && colors[normalize(name)]
+        ? colors[normalize(name)] : /^#[0-9a-f]{6}$/i.test(color || '')
+        ? color : colors[normalize(name)] || '#9ebcf0';
     const duration = (seconds) => fmt.format(Math.floor(seconds / 3600)) + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
     const percentage = (value) => value === null ? '—' : value.toFixed(2) + '%';
     const date = (value) => value && !isNaN(Date.parse(value)) ? new Date(value).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'No successful snapshot yet';
@@ -644,7 +948,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         range: $('range').value,
         theme: theme || $('theme').value,
         view: view || $('view').value,
-        limit: (view || $('view').value) === 'languages' ? '20' : '8',
+        limit: '10',
         sort: $('sort').value,
     });
     const tableRows = () => {
@@ -654,39 +958,50 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         for (const item of github ? github.languages : []) {
             const key = normalize(item.name);
             const old = code.get(key);
-            code.set(key, { name: item.name, bytes: item.bytes + (old ? old.bytes : 0), color: item.color });
+            code.set(key, { name: groupNames[key] || item.name, bytes: item.bytes + (old ? old.bytes : 0), color: item.color });
         }
         const rows = new Map();
+        const totalSeconds = snapshot.wakatime.data ? snapshot.wakatime.data.totalSeconds : 0;
         for (const item of snapshot.wakatime.data ? snapshot.wakatime.data.languages : []) {
             const key = normalize(item.name);
             const match = key === 'other' ? null : code.get(key);
             const previous = rows.get(key);
-            rows.set(key, { name: previous ? previous.name : item.name,
+            rows.set(key, { name: groupNames[key] || (previous ? previous.name : item.name),
                 seconds: item.seconds + (previous ? previous.seconds : 0),
-                percent: item.percent + (previous ? previous.percent : 0),
-                code: github && key !== 'other' ? (github.totalBytes ? (match ? match.bytes : 0) / github.totalBytes * 100 : 0) : null,
+                timePercent: (totalSeconds > 0 ? 100 * item.seconds / totalSeconds : 0)
+                    + (previous ? previous.timePercent : 0),
+                codeBytes: github && key !== 'other' ? (match ? match.bytes : 0) : null,
+                codePercent: github && key !== 'other' ? (github.totalBytes ? (match ? match.bytes : 0) / github.totalBytes * 100 : 0) : null,
                 color: safeColor(match ? match.color : null, item.name) });
         }
         for (const [key, item] of code) {
             if (!rows.has(key) && key !== 'other') rows.set(key, { name: item.name, seconds: 0,
-                percent: 0, code: github.totalBytes ? item.bytes / github.totalBytes * 100 : 0, color: safeColor(item.color, item.name) });
+                timePercent: 0, codeBytes: item.bytes, codePercent: github.totalBytes ? item.bytes / github.totalBytes * 100 : 0, color: safeColor(item.color, item.name) });
         }
-        return Array.from(rows.values()).sort((a, b) => $('sort').value === 'name' ? a.name.localeCompare(b.name)
-            : $('sort').value === 'code' ? (b.code === null ? -1 : b.code) - (a.code === null ? -1 : a.code) || b.percent - a.percent || a.name.localeCompare(b.name)
-            : b.seconds - a.seconds || (b.code === null ? -1 : b.code) - (a.code === null ? -1 : a.code) || a.name.localeCompare(b.name));
+        const values = Array.from(rows.values());
+        return displayLanguages(
+            selectLanguages(values, $('sort').value, 10, github !== null), 2,
+        );
     };
     function updateTable() {
         const rows = tableRows();
-        $('language-count').textContent = rows.length + ' mappings';
+        $('language-count').textContent = rows.length + ' rows · full totals';
         $('language-body').replaceChildren();
         for (const row of rows) {
             const tr = document.createElement('tr');
             const name = document.createElement('td');
-            const dot = document.createElement('span');
-            dot.className = 'dot'; dot.style.backgroundColor = row.color;
-            name.append(dot, document.createTextNode(row.name)); tr.append(name);
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            icon.setAttribute('class', 'language-icon');
+            icon.setAttribute('viewBox', '0 0 24 24');
+            icon.setAttribute('aria-hidden', 'true');
+            icon.setAttribute('fill', row.color);
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('fill-rule', row.name === 'SQL' ? 'evenodd' : 'nonzero');
+            path.setAttribute('d', languageIcon(row.name, languageIcons));
+            icon.append(path);
+            name.append(icon, document.createTextNode(row.name)); tr.append(name);
             for (const value of [snapshot.wakatime.data ? duration(row.seconds) : '—',
-                snapshot.wakatime.data ? percentage(row.percent) : '—', percentage(row.code)]) {
+                snapshot.wakatime.data ? percentage(row.timePercent) : '—', percentage(row.codePercent)]) {
                 const td = document.createElement('td'); td.textContent = value; tr.append(td);
             }
             $('language-body').append(tr);
@@ -748,7 +1063,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
             base = parsed.origin + parsed.pathname.replace(/\/$/, '');
             $('copy').disabled = false;
         } catch (_) {
-            $('snippet').textContent = 'Enter a valid public HTTPS Worker URL.';
+            $('snippet').textContent = 'Enter a valid public HTTPS URL.';
             $('copy').disabled = true;
             return;
         }
@@ -756,7 +1071,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         const picture = (view, alt) => '<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="' + url('dark', view)
             + '">\n  <img alt="' + alt + '" src="' + url('light', view) + '">\n</picture>';
         $('snippet').textContent = picture('overview', 'Coding time and GitHub language statistics')
-            + '\n\n<details>\n<summary>Language detail · top 20</summary>\n\n'
+            + '\n\n<details>\n<summary>Languages · 9 groups + Others</summary>\n\n'
             + picture('languages', 'Detailed time and code language shares') + '\n\n</details>'
             + '\n\n<details>\n<summary>GitHub activity</summary>\n\n'
             + picture('activity', 'GitHub activity with lifetime and recent-year periods') + '\n\n</details>';
@@ -781,8 +1096,15 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         const waka = snapshot.wakatime.data;
         $('identity').textContent = '@' + (github ? github.username : waka ? waka.username : 'profile');
         const all = github && github.visibility === 'all';
-        let note = 'WakaTime time share includes Other. GitHub code share uses owned '
-            + (all ? 'token-visible' : 'public') + ' non-fork repository bytes.';
+        let note = 'WakaTime time share includes Other. GitHub language share uses current repository bytes.';
+        if (github && github.collectionVersion >= 4) {
+            note += all ? ' Public + private repositories in the configured scope.'
+                : ' Public repositories in the configured scope.';
+            note += github.includeForks ? ' Forks included.' : ' Forks excluded.';
+        }
+        if (github && github.collectionVersion >= 5) {
+            note += ' Stars count owned repositories only.';
+        }
         if (waka && waka.end) note += ' WakaTime through ' + waka.end.slice(0, 10) + '.';
         else if (waka && waka.rangeLabel) note += ' WakaTime: ' + waka.rangeLabel + '.';
         if (waka && !waka.includesToday) note += ' Today is excluded by the source.';
@@ -809,7 +1131,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
             snapshot = data; updateSources(); updateCard(); $('loading').hidden = true;
         } catch (_) {
             if (current !== generation) return;
-            $('loading').textContent = 'The preview could not reach the Worker. Your last saved snapshot is retained on the server.';
+            $('loading').textContent = 'The preview could not reach the service. Your last saved snapshot is retained on the server.';
             $('loading').classList.add('error');
         }
     }
@@ -827,7 +1149,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         $('loading').textContent = 'The SVG could not be rendered. Source details remain available below.';
     });
     if (!['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
-        $('environment').textContent = 'WORKER PREVIEW'; $('public-url').value = location.origin;
+        $('environment').textContent = 'LIVE PREVIEW'; $('public-url').value = location.origin;
     }
     updateSnippet(); load();
 })();

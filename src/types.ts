@@ -2,8 +2,15 @@ export const RANGES = ['all_time', 'last_7_days', 'last_30_days'] as const;
 export type Range = typeof RANGES[number];
 
 export interface GitHubData {
+    collectionVersion?: 4 | 5 | 6;
+    repositoryAffiliations?: string[];
+    includeForks?: boolean;
+    analyzedForks?: number;
     username: string;
     name: string;
+    bio?: string | null;
+    profileStatus?: string | null;
+    avatarDataUri?: string | null;
     followers: number;
     publicRepositories: number;
     repositories?: number;
@@ -23,7 +30,8 @@ export interface GitHubData {
 /** Aggregate personal activity; never expose private repository identities. */
 export interface GitHubActivityData {
     /** Missing on older saved snapshots that omitted review-only repositories. */
-    collectionVersion?: 2;
+    collectionVersion?: 2 | 3;
+    includesOwnRepositories?: boolean;
     username: string;
     visibility: 'public' | 'all';
     scope: string;
@@ -88,7 +96,7 @@ export interface CardOptions {
     theme: 'dark' | 'light' | 'transparent';
     view: 'overview' | 'languages' | 'activity';
     limit: number;
-    sort: 'time' | 'code' | 'name';
+    sort: 'alternating' | 'time' | 'code' | 'name';
 }
 
 export interface Settings {
@@ -99,6 +107,9 @@ export interface Settings {
     RETRY_SECONDS: string;
     GITHUB_TOKEN?: string;
     GITHUB_VISIBILITY?: 'public' | 'all';
+    GITHUB_REPOSITORY_AFFILIATIONS?: string;
+    GITHUB_INCLUDE_FORKS?: string;
+    GITHUB_INCLUDE_OWN_CONTRIBUTIONS?: string;
     WAKATIME_TOKEN?: string;
 }
 

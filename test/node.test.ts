@@ -100,6 +100,7 @@ function upstream() {
         return json({ data: { user: { login: 'test', repositories: {
             totalCount: 1, pageInfo: { hasNextPage: false, endCursor: null },
             nodes: [{ id: 'fixture-repo', isPrivate: false, isFork: false,
+                owner: { login: 'test' },
                 stargazerCount: 8, forkCount: 2,
                 languages: { totalSize: 1000,
                     pageInfo: { hasNextPage: false, endCursor: null },
@@ -210,13 +211,31 @@ describe('Node runtime and persistent snapshots', () => {
         expect(source.calls()).toBe(calls);
     });
 
+    it('isolates owned-only stars from earlier broad-scope cached totals', async () => {
+        const path = directory();
+        const legacyKey = 'github:repositories:v4:all:'
+            + 'COLLABORATOR,ORGANIZATION_MEMBER,OWNER:true';
+        const legacy = { data: { collectionVersion: 4, stars: 15_598 },
+            lastSuccessAt: new Date().toISOString(), lastError: null,
+            lastAttemptAt: new Date().toISOString(), retryAt: null };
+        const storage = new SqliteStorage(path, profileIdentity(settings));
+        await storage.put(legacyKey, legacy);
+        storage.close();
+        const node = service(path, upstream().fetcher);
+        const value = await stats(await node.listen(0));
+        expect(value.github.data).toMatchObject({ collectionVersion: 6, stars: 8 });
+        expect(await node.storage.get(legacyKey)).toEqual(legacy);
+    });
+
     it('drains stale refreshes on shutdown and preserves failure cooldown on restart', async () => {
         const path = directory();
         const source = upstream();
         const first = service(path, source.fetcher);
         const url = await first.listen(0);
         const value = await stats(url);
-        for (const key of ['github:all-v1', 'github:activity:all:v1', 'wakatime:all_time']) {
+        const coreKey = 'github:repositories:v6:all:'
+            + 'COLLABORATOR,ORGANIZATION_MEMBER,OWNER:true';
+        for (const key of [coreKey, 'github:activity:all:v3:true', 'wakatime:all_time']) {
             const record = await first.storage.get<SourceSnapshot<unknown>>(key);
             await first.storage.put(key, {
                 ...record, lastSuccessAt: '2020-01-01T00:00:00.000Z', retryAt: null,

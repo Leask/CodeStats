@@ -14,7 +14,9 @@ export class RuntimeTestStore extends SnapshotStore {
     override async fetch(request: Request): Promise<Response> {
         if (new URL(request.url).pathname === '/test/age') {
             for (const key of [
-                'github', 'github:all-v1', 'github:activity:all:v1',
+                'github', 'github:repositories:v6:all:'
+                    + 'COLLABORATOR,ORGANIZATION_MEMBER,OWNER:true',
+                'github:activity:all:v3:true',
                 'wakatime:all_time',
             ]) {
                 const record = await this.testStorage.get<SourceSnapshot<unknown>>(key);

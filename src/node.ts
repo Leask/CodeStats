@@ -23,6 +23,9 @@ export function settingsFromEnvironment(
     return {
         GITHUB_USERNAME: environment.GITHUB_USERNAME ?? 'Leask',
         GITHUB_VISIBILITY: visibility,
+        GITHUB_REPOSITORY_AFFILIATIONS: environment.GITHUB_REPOSITORY_AFFILIATIONS,
+        GITHUB_INCLUDE_FORKS: environment.GITHUB_INCLUDE_FORKS,
+        GITHUB_INCLUDE_OWN_CONTRIBUTIONS: environment.GITHUB_INCLUDE_OWN_CONTRIBUTIONS,
         WAKATIME_USERNAME: environment.WAKATIME_USERNAME ?? 'leask',
         DEFAULT_RANGE: environment.DEFAULT_RANGE ?? 'all_time',
         FRESH_SECONDS: environment.FRESH_SECONDS ?? '21600',

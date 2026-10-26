@@ -1,5 +1,8 @@
-# Local Cloudflare Worker secrets; copy to ignored .dev.vars.
-# Use Wrangler/dashboard secrets for production; never put keys in vars.
+# Copy to ignored .dev.vars; keep this file secrets-only.
+# Set usernames and nonsecret options in wrangler.jsonc before preview/deploy.
+# Explicit first deploy: npm run deploy -- --secrets-file .dev.vars
+# Never put keys in wrangler.jsonc vars or README image URLs.
+# Classic PAT scopes for all visibility: repo, read:user, read:org.
 GITHUB_TOKEN=replace_with_a_server_side_github_token
 # Optional WakaTime read-stats OAuth token (not a heartbeat ingestion key).
-WAKATIME_TOKEN=
+# WAKATIME_TOKEN=replace_with_an_optional_read_stats_oauth_token

@@ -109,7 +109,7 @@ export function createGitHubClient(
                 scopes.add('read:org');
             }
             if (options.requiredScopes.some(scope => !scopes.has(scope))) {
-                throw new UpstreamError('GitHub token needs classic PAT scopes '
+                throw new UpstreamError('GitHub token needs PAT/OAuth scopes '
                     + 'repo, read:user and read:org for complete private coverage.');
             }
         }
