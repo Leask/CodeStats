@@ -26,8 +26,12 @@ adapters, sharing collectors, cache, routes and rendering.
   repositories, GitHub activity and WakaTime. Two services, three datasets.
   Scope changes use separate keys. Fresh6h, retry15m, rate-limit-aware.
   Warm requests return saved data while refreshing; failure retains values/times.
-- render.ts/app.ts: SVG, aggregate JSON, preview with expandable tables and README
-  generator. GitHub bytes and WakaTime hours retain separate denominators. Language
+- render.ts/app.ts: transparent SVG at `/` and `/card.svg`; HTML card builder at
+  `/build` and `/build/`; aggregate JSON at `/api/stats`. The builder's default
+  Markdown is one linked image of the root URL, with nondefault query parameters
+  only. Expandable language/activity cards are opt-in. Snippet generation does
+  not depend on a successful statistics fetch. GitHub bytes and WakaTime hours
+  retain separate denominators. Language
   families are summed first. Alternating time/byte ranks select9 named groups,
   excluding upstream Other. Display defaults to time order; Others remains last
   and sums the entire unselected remainder. Both columns conserve all collected
@@ -40,6 +44,12 @@ adapters, sharing collectors, cache, routes and rendering.
   HTML preview; no external images/fonts, safe neutral fallback for unknowns.
 - index.ts: SQLite Durable Object adapter. node.ts/node-storage.ts: Node HTTP
   and private SQLite adapter. Preserve both cache directories independently.
+
+Wrangler keeps `keep_names: false` and `minify: false`. The builder embeds shared
+helper functions as source; name-preservation instrumentation can otherwise add
+an undefined `__name` helper to browser code. Preserve these bundle settings and
+validate the generated Worker builder in a browser after changing the build.
+Runtime credentials are Worker secret bindings, separate from build secrets.
 
 No commit-history walker, additions/deletions counter, author attribution, SHA
 ledger, backfill queue, progress poller, login UI or scheduler is implemented.

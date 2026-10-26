@@ -63,8 +63,9 @@ chmod 600 .env
 npm start
 ```
 
-Visit `http://127.0.0.1:8791`. The first statistics request can take tens of
-seconds; subsequent fresh-cache requests reuse the saved datasets.
+Visit `http://127.0.0.1:8791/build` for the HTML card builder. The root URL and
+`/card.svg` serve the transparent SVG directly. The first statistics request can
+take tens of seconds; subsequent fresh-cache requests reuse the saved datasets.
 
 For public hosting:
 
@@ -74,7 +75,7 @@ For public hosting:
 3. Preserve the `.data/` directory through restarts and releases. In a container,
    use a persistent volume and `HOST=0.0.0.0` if the listener must cross its network.
 4. Use the public HTTPS origin in the README generator. GitHub must be able to
-   fetch `/card.svg` without a login, VPN or private-network connection.
+   fetch `/` or `/card.svg` without a login, VPN or private-network connection.
 
 `npm start` builds and starts Node. If your release process builds separately:
 
@@ -109,6 +110,9 @@ Clone/install as above. In `wrangler.jsonc`, change:
 
 Keep `durable_objects.bindings` and the existing `v1/new_sqlite_classes`
 migration. Do not remove or retag an already deployed migration.
+Keep `keep_names: false` and `minify: false`: the builder serializes shared helper
+functions, and name-preservation instrumentation must not inject an undefined
+`__name` into browser code.
 
 ```sh
 cp .dev.vars.example .dev.vars
@@ -119,7 +123,7 @@ npm run dev:worker
 
 Local Worker state is stored under `.wrangler/state`. It is separate from Node's
 `.data/` cache and is not uploaded to production. Choose one local runtime for
-port8791 at a time.
+port8791 at a time. Open `/build` for the interactive preview.
 
 ### First deployment
 
@@ -153,6 +157,26 @@ Keep the Worker name, Durable Object class/binding and migration history stable
 to preserve the cache. No cron trigger or GitHub Actions workflow is required.
 [Cloudflare secrets](https://developers.cloudflare.com/workers/configuration/secrets/),
 [Durable Object migrations](https://developers.cloudflare.com/durable-objects/reference/durable-object-class-migrations-legacy/).
+
+### Workers Builds dashboard
+
+Connecting this GitHub repository to Workers Builds is optional. Use the
+repository root, leave the optional **Build command** blank, and set the
+**Deploy command** to `npx wrangler deploy`. Wrangler bundles the TypeScript
+entry point itself. Use the Node version recorded in `.nvmrc` for build tooling;
+do not add a separate runtime or CI workflow for this setup.
+
+In the deployed Worker's **Settings → Variables and Secrets**, add
+`GITHUB_TOKEN` with type **Secret**. Add `WAKATIME_TOKEN` there only when needed.
+These must be runtime bindings: a similarly named secret in **Build settings**
+is available to the build process and does not by itself configure the running
+Worker. A successful build/deployment can therefore still show GitHub as
+unavailable when the runtime `GITHUB_TOKEN` is missing. Save/deploy the runtime
+secret change, then check `/build` and `/api/stats`.
+
+Keep usernames and public options in `wrangler.jsonc`; never put real tokens in
+that file or the deploy command. Leave the repository's bundle settings intact;
+do not add `--minify` to the dashboard command.
 
 ## Settings
 
@@ -193,21 +217,25 @@ Refreshes are request-driven. An idle deployment does no scheduled API polling.
 SVG responses also have five-minute HTTP caching; GitHub's image proxy can delay
 what you see in a README. The footer shows saved GitHub/WakaTime refresh ages;
 source status and exact times remain in `/api/stats`, accessible SVG metadata and
-the preview page. Saved data still needs the host and persistent storage to work.
+the `/build` page. Saved data still needs the host and persistent storage to work.
 
-After deployment, open `/`, check both services' dataset statuses, and inspect
-`/api/stats`. Then open `/card.svg` and copy the README snippet. `/health` checks
-HTTP runtime readiness only; a200 response there does not verify upstream access.
+After deployment, open `/build`, check both services' dataset statuses, and
+inspect `/api/stats`. Check that `/` and `/card.svg` render the transparent card,
+then copy the builder's default linked Markdown. The snippet is available even
+when statistics fail to load. `/health` checks HTTP runtime readiness only; a200
+response there does not verify upstream access.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
 | Another person's profile appears | Replace both sample usernames; Worker account IDs belong in `wrangler.jsonc` |
+| GitHub says to configure `GITHUB_TOKEN` after a successful deploy | Add it as a Secret under the deployed Worker's Settings → Variables and Secrets; build-only secrets are insufficient |
 | GitHub scope/identity error | Token belongs to `GITHUB_USERNAME` and declares the required classic/OAuth scopes |
 | Organization data is missing | Token visibility, SSO authorization and organization policy; repo access alone may be insufficient |
 | WakaTime unavailable or calculating | Range is public/authorized and computation is complete; use OAuth rather than a heartbeat key |
-| README image is broken | Public HTTPS `/card.svg`, no access login, correct domain and no token in URL |
+| README image is broken | Public HTTPS `/` or `/card.svg`, no access login, correct domain and no token in URL |
+| Builder reports `__name is not defined` | Use the repository's `keep_names: false` and `minify: false` bundle settings, redeploy, and check the actual `/build` page |
 | Old numbers remain | Check original success times and source errors; last-good fallback and GitHub image caching are intentional |
 | Node cannot listen | Port in use, invalid `HOST`/`PORT`, or cache directory ownership/mode |
 | Node cache permissions fail | Directory is owned by the service user and private0700; do not recursively change unrelated directories |

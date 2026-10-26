@@ -11,7 +11,7 @@ function rangeFrom(url: URL, env: Settings): Range {
 }
 
 function cardOptions(url: URL): CardOptions {
-    const theme = url.searchParams.get('theme') ?? 'dark';
+    const theme = url.searchParams.get('theme') ?? 'transparent';
     const view = url.searchParams.get('view') ?? 'overview';
     const sort = url.searchParams.get('sort') ?? 'time';
     if (!['dark', 'light', 'transparent'].includes(theme)
@@ -24,17 +24,17 @@ function cardOptions(url: URL): CardOptions {
         throw new Error('Limit must be an integer from 1 to 100.');
     }
     return {
-            theme: theme as CardOptions['theme'],
-            view: view as CardOptions['view'],
-            sort: sort as CardOptions['sort'], limit: requested,
-        };
-    }
+        theme: theme as CardOptions['theme'],
+        view: view as CardOptions['view'],
+        sort: sort as CardOptions['sort'], limit: requested,
+    };
+}
 
-    /** Shared HTTP behavior for the Node and Worker adapters. */
-    export function createHandler<Config extends Settings>(
-        readSnapshot: (env: Config, range: Range) => Promise<StatsSnapshot>,
-    ) {
-        return {
+/** Shared HTTP behavior for the Node and Worker adapters. */
+export function createHandler<Config extends Settings>(
+    readSnapshot: (env: Config, range: Range) => Promise<StatsSnapshot>,
+) {
+    return {
         async fetch(request: Request, env: Config): Promise<Response> {
             const url = new URL(request.url);
             if (!['GET', 'HEAD'].includes(request.method)) {
@@ -43,8 +43,10 @@ function cardOptions(url: URL): CardOptions {
                 });
             }
             let response: Response;
-            if (url.pathname === '/') {
-                response = new Response(renderPage(), {
+            if (['/build', '/build/'].includes(url.pathname)) {
+                const defaultRange = RANGES.includes(env.DEFAULT_RANGE as Range)
+                    ? env.DEFAULT_RANGE as Range : 'all_time';
+                response = new Response(renderPage(defaultRange), {
                     headers: {
                         'Content-Type': 'text/html; charset=utf-8',
                         'Cache-Control': 'no-store',
@@ -64,7 +66,7 @@ function cardOptions(url: URL): CardOptions {
                     { headers: { 'Content-Type': 'image/svg+xml',
                         'Cache-Control': 'public, max-age=86400' } },
                 );
-            } else if (['/api/stats', '/card.svg'].includes(url.pathname)) {
+            } else if (['/', '/api/stats', '/card.svg'].includes(url.pathname)) {
                 let range: Range;
                 let options: CardOptions;
                 try {
@@ -73,7 +75,19 @@ function cardOptions(url: URL): CardOptions {
                 } catch (error) {
                     return new Response((error as Error).message, { status: 400 });
                 }
-                const data = await readSnapshot(env, range);
+                let data: StatsSnapshot;
+                try {
+                    data = await readSnapshot(env, range);
+                } catch {
+                    // Never expose native exceptions or claim a saved copy exists.
+                    response = Response.json({ error: {
+                        code: 'snapshot_unavailable',
+                        message: 'Statistics storage is unavailable. Check the '
+                            + 'Worker binding, migration and runtime configuration.',
+                    } }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+                    return request.method === 'HEAD'
+                        ? new Response(null, response) : response;
+                }
                 if (url.pathname === '/api/stats') {
                     response = Response.json(data, {
                         headers: { 'Cache-Control': 'no-store' },

@@ -505,7 +505,7 @@ describe('safe README SVG', () => {
         expect(svg).toContain('@media(prefers-color-scheme:dark)');
     });
 
-    it('builds a self-contained preview with native details and safe DOM rendering', () => {
+    it('builds a self-contained builder with native details and safe DOM rendering', () => {
         const html = renderPage();
         expect(html).toContain('<details id="language-details">');
         expect(html).toContain('/api/stats?range=');
@@ -513,6 +513,10 @@ describe('safe README SVG', () => {
         expect(html).toContain("document.createTextNode(row.name)");
         expect(html).not.toContain('.innerHTML');
         expect(html).not.toContain('https://cdn.');
+        expect(html).toContain('Build your card.');
+        expect(html).toContain('<details id="readme-details" open>');
+        expect(html).toContain("theme: 'transparent'");
+        expect(html).not.toContain('Your last saved snapshot is retained on the server.');
     });
 });
 
@@ -678,9 +682,10 @@ describe('GitHub personal activity', () => {
         expect(html).toContain("td.textContent = value");
         expect(html).toContain("dd.textContent = metric.definition");
         expect(html).not.toContain('.innerHTML');
-        expect(html).toContain("picture('overview'");
-        expect(html).toContain("picture('languages'");
-        expect(html).toContain("picture('activity'");
+        expect(html).toContain("markdown($('view').value, 'CodeStats')");
+        expect(html).toContain("markdown('languages'");
+        expect(html).toContain("markdown('activity'");
+        expect(html).toContain("const project = 'https://github.com/Leask/CodeStats'");
         expect(html).toContain('<option value="all_time">All time</option>');
     });
 });

@@ -24,7 +24,7 @@ npm run test:runtime
 
 ## Browser review
 
-Start your configured local Node or Worker service, then run:
+Start your configured local Node or Worker service, open `/build`, then run:
 
 ```sh
 npm run test:preview
@@ -44,6 +44,27 @@ of the running real profile, not an offline unit test for every account shape.
 It checks controls, Markdown copying, grouped language totals, themes/ranges,
 profile header, SVG bounds and mobile overflow. Ignored screenshots/receipts go
 to `artifacts/`.
+
+Verify the route contract as well: `/` and `/card.svg` return transparent SVG by
+default; `/build` and `/build/` return HTML. The builder defaults to transparent,
+shows one compact linked Markdown image, and adds expandable cards only when
+selected. Its snippet must remain usable when `/api/stats` fails.
+
+Exercise the generated Worker bundle in a browser, not only the Node build:
+
+```sh
+npm run test:worker:browser
+```
+
+This builds with the actual Wrangler configuration and serves its generated
+Worker in workerd with isolated SQLite storage and mocked upstreams. It checks
+the builder, compact Markdown/clipboard, partial source failure, transparent
+homepage and HTTP/JSON error reporting without using real tokens or cloud resources.
+
+Serialized helper functions must not refer to an undefined `__name`. Keep
+Wrangler's `keep_names: false` and `minify: false`; do not enable minification as
+a workaround for name-preservation instrumentation. A passing bundle command
+alone does not establish that the browser builder runs.
 
 Node cache is stored in `.data/`; local Worker cache is in `.wrangler/state`.
 Keep both private and preserve the chosen runtime's store across restarts. Tests

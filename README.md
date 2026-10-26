@@ -13,7 +13,7 @@ upstream API is unavailable. It does not depend on another statistics-card servi
   issues, followers and owned-repository stars.
 - Combined language table: WakaTime hours alongside GitHub byte percentages.
 - Light, dark and transparent SVGs, plus expandable GitHub README sections.
-- A preview page with **Copy Markdown** and persistent last-good caching.
+- A `/build` card builder with **Copy Markdown** and persistent last-good caching.
 
 ## 1. Get the project and configure your accounts
 
@@ -54,7 +54,8 @@ chmod 600 .env
 npm start
 ```
 
-Open [http://127.0.0.1:8791](http://127.0.0.1:8791). Node uses a local SQLite
+Open [the card builder](http://127.0.0.1:8791/build). The root URL serves the
+transparent SVG directly. Node uses a local SQLite
 cache under `.data/`; no external database is required. For a public service,
 keep that directory persistent and put the server behind an HTTPS reverse proxy.
 See [Node hosting](docs/DEPLOYMENT.md#nodejs).
@@ -72,7 +73,7 @@ chmod 600 .dev.vars
 npm run dev:worker
 ```
 
-Open [http://127.0.0.1:8791](http://127.0.0.1:8791) to review it locally. Stop
+Open [http://127.0.0.1:8791/build](http://127.0.0.1:8791/build) to review it locally. Stop
 that process before switching runtimes on the same port. To publish:
 
 ```sh
@@ -86,25 +87,32 @@ Wrangler creates the configured SQLite Durable Object through its migration;
 no separate KV, D1 database, cron or GitHub Actions workflow is needed.
 See [Cloudflare deployment](docs/DEPLOYMENT.md#cloudflare-workers).
 
+When deploying through Workers Builds, add `GITHUB_TOKEN` to the deployed
+Worker's **Settings → Variables and Secrets** as a **Secret**. Build secrets
+alone do not create the runtime binding. See [the dashboard setup](docs/DEPLOYMENT.md#workers-builds-dashboard).
+
 ## 3. Copy the snippet into your GitHub README
 
-1. Open your deployed public HTTPS URL.
-2. Expand **Add to your GitHub README** and check the **Public HTTPS URL** field.
+1. Open `/build` on your deployed public HTTPS origin.
+2. Check the **Public HTTPS URL** field in **Add to your GitHub README**.
 3. Choose your range/order, then click **Copy Markdown**.
 4. Paste it into a repository README. For your profile, use the root `README.md`
    in your public `YOUR_GITHUB_USERNAME/YOUR_GITHUB_USERNAME` repository.
 
-The generated snippet includes automatic light/dark images and expandable
-language/activity cards. For a single card, replace the example domain below
-with your own deployment:
+The default snippet is one linked image, with no URL parameters needed. Replace
+the example domain below with your deployment:
 
 ```markdown
-[![My coding statistics](https://stats.example.com/card.svg?theme=transparent&range=all_time)](https://stats.example.com/)
+[![CodeStats](https://stats.example.com/)](https://github.com/Leask/CodeStats)
 ```
 
 Use your own public endpoint, not `localhost` or an authenticated preview URL.
 Your token never belongs in the image URL or README. GitHub renders the SVG as
 an image; expand/collapse uses native `<details>`, not embedded JavaScript.
+The transparent card adapts its palette where the viewer supports it. Choose
+explicit light/dark styles or enable the builder's optional expandable cards
+when needed. The Markdown generator remains available even if statistics fail
+to load.
 [More Markdown examples and options](docs/EMBEDDING.md).
 
 ## Cache and data scope

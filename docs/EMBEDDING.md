@@ -8,16 +8,17 @@ not in the image URL. The same snippets work for Node hosting and Workers.
 
 ## Use the snippet generator
 
-1. Open the local preview or your deployed homepage.
+1. Open `/build` or `/build/` on your local service or deployed origin.
 2. Select the WakaTime range and language order.
-3. Expand **Add to your GitHub README**.
+3. Use the already-open **Add to your GitHub README** section.
 4. Fill **Public HTTPS URL** with your deployed origin, not the local preview URL.
 5. Click **Copy Markdown** and paste it into your README.
 
-The generated snippet includes a light/dark overview and two native `<details>`
-sections, for language shares and GitHub activity. The snippet uses `<picture>`
-so GitHub chooses the card color scheme. The language/activity details are SVG
-images; interactive sorting and data tables remain on the service homepage.
+The default snippet is one linked transparent SVG. Only nondefault settings add
+query parameters. Check **Include expandable language and activity cards** to
+append two native `<details>` sections. Each image links to the CodeStats
+repository. Interactive controls and data tables remain at `/build`.
+The generator is visible and usable even when the statistics API is unavailable.
 
 For a profile README, create a public repository whose name is exactly your
 GitHub username, then put the snippet in its root `README.md`. It also works in
@@ -26,40 +27,41 @@ ordinary repository READMEs. [GitHub profile README documentation](https://docs.
 ## One card
 
 ```markdown
-[![My coding statistics](https://stats.example.com/card.svg?theme=transparent&range=all_time)](https://stats.example.com/)
+[![CodeStats](https://stats.example.com/)](https://github.com/Leask/CodeStats)
 ```
 
 Use `theme=light` or `theme=dark` for a fixed background. Transparent SVGs use a
-transparent background and adapt their palette where the image viewer supports it.
+transparent background and adapt their palette where the image viewer supports
+it. Both `/` and `/card.svg` serve this transparent card without parameters.
 
-## Automatic light/dark mode
+## Optional explicit light/dark images
+
+The default transparent SVG already contains light/dark palette rules. If you
+prefer separate images selected by the README viewer, use:
 
 ```html
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://stats.example.com/card.svg?theme=dark&amp;range=all_time">
-  <img alt="My coding statistics" src="https://stats.example.com/card.svg?theme=light&amp;range=all_time">
+  <source media="(prefers-color-scheme: dark)" srcset="https://stats.example.com/?theme=dark">
+  <img alt="CodeStats" src="https://stats.example.com/?theme=light">
 </picture>
 ```
 
 ## Expandable language and activity cards
 
 ```markdown
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://stats.example.com/card.svg?theme=dark&amp;range=all_time">
-  <img alt="My coding statistics" src="https://stats.example.com/card.svg?theme=light&amp;range=all_time">
-</picture>
+[![CodeStats](https://stats.example.com/)](https://github.com/Leask/CodeStats)
 
 <details>
 <summary>Language detail</summary>
 
-![Languages](https://stats.example.com/card.svg?view=languages&theme=transparent&range=all_time)
+[![CodeStats languages](https://stats.example.com/?view=languages)](https://github.com/Leask/CodeStats)
 
 </details>
 
 <details>
 <summary>GitHub activity</summary>
 
-![GitHub activity](https://stats.example.com/card.svg?view=activity&theme=transparent&range=all_time)
+[![CodeStats GitHub activity](https://stats.example.com/?view=activity)](https://github.com/Leask/CodeStats)
 
 </details>
 ```
@@ -73,21 +75,21 @@ by GitHub visitors. Publishing a README does not deploy the CodeStats server.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `/` | Preview, expanded data tables and snippet generator |
-| `/card.svg` | README image |
+| `/`, `/card.svg` | Transparent README SVG by default |
+| `/build`, `/build/` | HTML card builder, data tables and snippet generator |
 | `/api/stats` | Aggregates and source status/timestamps |
 | `/health` | HTTP runtime readiness only |
 
 Example:
 
 ```text
-/card.svg?range=all_time&theme=dark&view=overview&limit=10&sort=time
+/?theme=dark&range=last_30_days
 ```
 
 | Parameter | Supported values | Default |
 | --- | --- | --- |
 | `range` | `all_time`, `last_7_days`, `last_30_days` | Server's `DEFAULT_RANGE` |
-| `theme` | `dark`, `light`, `transparent` | `dark` |
+| `theme` | `dark`, `light`, `transparent` | `transparent` |
 | `view` | `overview`, `languages`, `activity` | `overview` |
 | `limit` | Integers1–100; the final row is the unselected remainder | `10` |
 | `sort` | `time`, `code`, `name`, `alternating` | `time` |
@@ -100,7 +102,7 @@ groups plus Others. Sorting changes their order, not which groups are selected.
 
 Like [GitHub Stats Extended](https://github.com/stats-organization/github-stats-extended),
 CodeStats exposes SVG URLs that GitHub can embed as images. Here you configure
-your accounts once on your own deployment, then use its `/card.svg` URL. No shared
+your accounts once on your own deployment, then use its root URL or `/card.svg`. No shared
 statistics service, multi-user login or generated-file GitHub Action is required.
 See [the implementation comparison](github-collection-plan.md) for collection,
 private access and rank differences.

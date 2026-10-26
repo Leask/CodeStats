@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Serve the transparent README SVG directly at `/` and `/card.svg`; move the
+  interactive card builder to `/build` and `/build/`.
+- Generate one compact linked Markdown image by default, omitting default URL
+  parameters. Expandable language/activity cards are optional, and the snippet
+  remains available when statistics cannot load.
+- Preserve browser helper source in Worker bundles with `keep_names: false`
+  and `minify: false`, avoiding an undefined `__name` in the builder.
+- Clarify runtime Worker secrets and the optional Workers Builds dashboard
+  setup, including the distinction from build-only secrets.
+
 ## v0.1.0 — 2026-10-26
 
 First milestone of the independently implemented CodeStats engine and card.

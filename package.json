@@ -12,6 +12,7 @@
         "deploy": "wrangler deploy",
         "test:runtime": "node scripts/cache-runtime-check.mjs",
         "test:preview": "node scripts/preview-check.mjs",
+        "test:worker:browser": "npm run build && node scripts/worker-browser-check.mjs",
         "start": "npm run build:node && node --env-file-if-exists=.dev.vars --env-file-if-exists=.env dist/node.mjs",
         "dev:worker": "wrangler dev --ip 127.0.0.1 --port 8791",
         "build:node": "node scripts/build-node.mjs"

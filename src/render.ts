@@ -1,6 +1,7 @@
 import type {
     CardOptions,
     LanguageRow,
+    Range,
     SourceSnapshot,
     StatsSnapshot,
 } from './types';
@@ -771,8 +772,8 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + '</svg>';
 }
 
-/** Self-contained local preview; no remote scripts, fonts, or fake sample data. */
-export function renderPage(): string {
+/** Card builder; no remote scripts, fonts, or fake sample data. */
+export function renderPage(defaultRange: Range = 'all_time'): string {
     return String.raw`<!doctype html>
 <html lang="en">
 <head>
@@ -780,7 +781,7 @@ export function renderPage(): string {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<title>CodeStats · Time meets code</title>
+<title>CodeStats · Build your card</title>
 <style>
 :root{color-scheme:dark;--bg:#0e141a;--panel:#151d26;--line:#2a3542;
 --text:#edf2f8;--muted:#94a5b7;--green:#a3e5c6;--blue:#8aaff4}
@@ -857,17 +858,17 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <body>
 <div class="shell">
 <nav><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>CodeStats</div>
-<span class="local" id="environment">LOCAL PREVIEW</span></nav>
-<header class="hero"><div><div class="eyebrow">The unified developer card</div><h1>Time meets code.</h1>
-<p>Your coding hours and GitHub languages, side by side.<br>One card. Two perspectives. A snapshot that stays useful.</p></div>
+<span class="local" id="environment">CARD BUILDER</span></nav>
+<header class="hero"><div><div class="eyebrow">The unified developer card</div><h1>Build your card.</h1>
+<p>Your coding hours and GitHub languages, side by side.<br>Choose the appearance, then copy your README Markdown.</p></div>
 <div class="identity"><strong id="identity">Loading profile</strong><small>WakaTime × GitHub</small></div></header>
 <div class="layout">
 <aside>
 <form class="config" id="controls"><h2 class="section-title">Shape your card</h2>
 <div class="control"><label for="range">Time range</label><select id="range"><option value="all_time">All time</option>
 <option value="last_7_days">Last 7 days</option><option value="last_30_days">Last 30 days</option></select></div>
-<div class="control"><label for="theme">Appearance</label><select id="theme"><option value="dark">Midnight</option>
-<option value="light">Paper</option><option value="transparent">Transparent</option></select></div>
+<div class="control"><label for="theme">Appearance</label><select id="theme"><option value="transparent">Transparent</option>
+<option value="dark">Midnight</option><option value="light">Paper</option></select></div>
 <div class="control"><label for="view">View</label><select id="view"><option value="overview">Overview</option>
 <option value="languages">Language detail</option><option value="activity">GitHub activity</option></select></div>
 <div class="control"><label for="sort">Language order</label><select id="sort"><option value="time">Coding time first</option>
@@ -883,7 +884,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <small id="wakatime-time">Waiting for source</small><small id="wakatime-error"></small></div></section>
 </aside>
 <main>
-<div class="preview-label"><span>README preview</span><a id="json-link" href="/api/stats?range=all_time" target="_blank" rel="noopener">View source JSON ↗</a></div>
+<div class="preview-label"><span>README card</span><a id="json-link" href="/api/stats?range=all_time" target="_blank" rel="noopener">View source JSON ↗</a></div>
 <div class="card-stage" id="stage"><div class="loading" id="loading">Fetching your first snapshot<span>Connecting GitHub and WakaTime.</span></div>
 <img id="card" alt="Unified WakaTime and GitHub profile statistics" hidden></div>
 <p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures current repository language bytes, not personally authored lines.</p>
@@ -902,14 +903,15 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <details><summary>How these counts are defined</summary><div class="detail-body">
 <p class="detail-note">These counts describe different actions and periods; they are not added together. GitHub search, contribution eligibility, token permissions, and organization access can limit coverage. Language bytes describe current repository content, including other authors.</p>
 <dl class="metric-definitions" id="activity-definitions"></dl></div></details></div></details>
-<details id="readme-details"><summary>Add to your GitHub README <small>Native expandable sections</small></summary>
+<details id="readme-details" open><summary>Add to your GitHub README <small>Copy and paste</small></summary>
 <div class="detail-body"><label for="public-url">Public HTTPS URL</label>
 <input id="public-url" type="url" value="https://stats.example.com" aria-describedby="url-note">
+<p><label><input id="include-details" type="checkbox"> Include expandable language and activity cards</label></p>
 <div class="snippet-head"><p id="url-note">Replace this after deployment. Localhost images cannot load on GitHub.</p>
 <button class="button" id="copy" type="button">Copy Markdown</button></div><pre id="snippet"></pre></div></details>
 <section class="explain"><div><b>Two honest percentages</b><p>Time share is WakaTime's tracked activity, including Other. Code share is GitHub's language bytes. Neither is an individual authorship or skill score.</p></div>
 <div><b>Freshness, made visible</b><p>Each source keeps its last successful snapshot. If an API is down, saved numbers remain visible with their own timestamp and a stale label.</p></div>
-<div><b>Made for your README</b><p>A single SVG works as a GitHub image. Native details sections reveal language and activity cards. The interactive controls live on this preview page.</p></div></section>
+<div><b>Made for your README</b><p>A single SVG works as a GitHub image. Native details sections reveal language and activity cards. The interactive controls live at /build; the homepage serves the image directly.</p></div></section>
 </main></div>
 <footer><span>CODESTATS · NODE.JS + CLOUDFLARE WORKERS</span><span id="footer-scope">Aggregates. Independently refreshed.</span></footer>
 </div>
@@ -918,6 +920,15 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     'use strict';
     const $ = (id) => document.getElementById(id);
     const controls = ['range', 'theme', 'view', 'sort'];
+    const defaults = { range: ${JSON.stringify(defaultRange)},
+        theme: 'transparent', view: 'overview', sort: 'time', limit: '10' };
+    const query = new URLSearchParams(location.search);
+    for (const id of controls) {
+        const value = query.get(id) || defaults[id];
+        if (Array.from($(id).options).some(option => option.value === value)) {
+            $(id).value = value;
+        }
+    }
     let snapshot = null;
     let generation = 0;
     const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
@@ -1056,25 +1067,35 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         }
     }
     function updateSnippet() {
-        let base = $('public-url').value.trim().replace(/\/$/, '');
+        let base;
         try {
-            const parsed = new URL(base);
-            if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error();
-            base = parsed.origin + parsed.pathname.replace(/\/$/, '');
+            const parsed = new URL($('public-url').value.trim());
+            if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+                || parsed.search || parsed.hash) throw new Error();
+            base = parsed.origin;
             $('copy').disabled = false;
         } catch (_) {
             $('snippet').textContent = 'Enter a valid public HTTPS URL.';
             $('copy').disabled = true;
             return;
         }
-        const url = (theme, view) => (base + '/card.svg?' + params(theme, view)).replace(/&/g, '&amp;');
-        const picture = (view, alt) => '<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="' + url('dark', view)
-            + '">\n  <img alt="' + alt + '" src="' + url('light', view) + '">\n</picture>';
-        $('snippet').textContent = picture('overview', 'Coding time and GitHub language statistics')
-            + '\n\n<details>\n<summary>Languages · 9 groups + Others</summary>\n\n'
-            + picture('languages', 'Detailed time and code language shares') + '\n\n</details>'
-            + '\n\n<details>\n<summary>GitHub activity</summary>\n\n'
-            + picture('activity', 'GitHub activity with lifetime and recent-year periods') + '\n\n</details>';
+        const project = 'https://github.com/Leask/CodeStats';
+        const url = (view) => {
+            const selected = params(null, view);
+            for (const [key, value] of Object.entries(defaults)) {
+                if (selected.get(key) === value) selected.delete(key);
+            }
+            return base + '/' + (selected.size ? '?' + selected : '');
+        };
+        const markdown = (view, alt) => '[![' + alt + '](' + url(view) + ')](' + project + ')';
+        let snippet = markdown($('view').value, 'CodeStats');
+        if ($('include-details').checked) {
+            snippet += '\n\n<details>\n<summary>Languages · 9 groups + Others</summary>\n\n'
+                + markdown('languages', 'CodeStats languages') + '\n\n</details>'
+                + '\n\n<details>\n<summary>GitHub activity</summary>\n\n'
+                + markdown('activity', 'CodeStats GitHub activity') + '\n\n</details>';
+        }
+        $('snippet').textContent = snippet;
     }
     function updateCard() {
         const image = $('card');
@@ -1122,22 +1143,39 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         $('loading').hidden = false;
         $('loading').classList.remove('error');
         $('loading').replaceChildren(document.createTextNode('Loading your snapshot…'));
-        $('card').hidden = true;
+        let data;
         try {
             const response = await fetch('/api/stats?range=' + encodeURIComponent($('range').value));
-            if (!response.ok) throw new Error('Snapshot endpoint returned HTTP ' + response.status);
-            const data = await response.json();
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            try { data = await response.json(); }
+            catch (_) { throw new Error('invalid JSON response'); }
+        } catch (error) {
             if (current !== generation) return;
-            snapshot = data; updateSources(); updateCard(); $('loading').hidden = true;
-        } catch (_) {
-            if (current !== generation) return;
-            $('loading').textContent = 'The preview could not reach the service. Your last saved snapshot is retained on the server.';
+            const detail = error instanceof Error
+                && /^(HTTP \d{3}|invalid JSON response)$/.test(error.message)
+                ? error.message : 'network request failed';
+            $('loading').textContent = 'Could not load /api/stats (' + detail
+                + '). Check Worker runtime settings and storage bindings.';
             $('loading').classList.add('error');
+            return;
+        }
+        if (current !== generation) return;
+        snapshot = data;
+        try {
+            updateSources(); updateCard(); $('loading').hidden = true;
+        } catch (error) {
+            $('loading').textContent = 'The card builder could not render the data. '
+                + 'Open /api/stats for source status; Markdown remains available.';
+            $('loading').classList.add('error');
+            console.error('CodeStats builder rendering failed', error);
         }
     }
     for (const id of controls) $(id).addEventListener('change', () => id === 'range' ? load() : updateCard());
     $('controls').addEventListener('submit', (event) => event.preventDefault());
     $('public-url').addEventListener('input', updateSnippet);
+    $('include-details').addEventListener('change', updateSnippet);
     $('copy').addEventListener('click', async () => {
         try {
             await navigator.clipboard.writeText($('snippet').textContent);
@@ -1149,7 +1187,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         $('loading').textContent = 'The SVG could not be rendered. Source details remain available below.';
     });
     if (!['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
-        $('environment').textContent = 'LIVE PREVIEW'; $('public-url').value = location.origin;
+        $('public-url').value = location.origin;
     }
     updateSnippet(); load();
 })();

@@ -23,7 +23,7 @@ page.on('pageerror', error => errors.push(error.message));
 page.on('request', request => requests.push(request.url()));
 const checks = {};
 try {
-    await page.goto(base, { waitUntil: 'networkidle' });
+    await page.goto(base + '/build', { waitUntil: 'networkidle' });
     await page.waitForFunction(() => {
         const image = document.querySelector('#card');
         return image && !image.hidden && image.complete && image.naturalWidth > 0;
@@ -107,12 +107,16 @@ try {
     await page.locator('#theme').selectOption('light');
     await page.locator('#card').evaluate(image => image.decode());
     checks.theme = (await page.locator('#card').getAttribute('src')).includes('theme=light');
-    await page.locator('#readme-details summary').click();
+    if (!await page.locator('#readme-details').evaluate(node => node.open)) {
+        await page.locator('#readme-details summary').click();
+    }
+    await page.locator('#include-details').check();
     await page.locator('#public-url').fill('https://stats.example.com');
     const snippet = await page.locator('#snippet').textContent();
     checks.readmeHierarchy = snippet.includes('<details>')
-        && snippet.includes('<picture>') && snippet.includes('view=languages')
-        && snippet.includes('https://stats.example.com/card.svg');
+        && snippet.includes('view=languages')
+        && snippet.includes('[![CodeStats](https://stats.example.com/')
+        && snippet.includes('](https://github.com/Leask/CodeStats)');
     await page.locator('#copy').click();
     await page.waitForFunction(() => document.querySelector('#copy').textContent === 'Copied');
     checks.copy = await page.evaluate(() => navigator.clipboard.readText()) === snippet;

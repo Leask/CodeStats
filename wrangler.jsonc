@@ -3,6 +3,8 @@
     "name": "codestats",
     "main": "src/index.ts",
     "compatibility_date": "2026-10-25",
+    "keep_names": false,
+    "minify": false,
     "workers_dev": true,
     "preview_urls": false,
     "vars": {

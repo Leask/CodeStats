@@ -166,7 +166,8 @@ describe('Node runtime and persistent snapshots', () => {
         const source = upstream();
         const node = service(directory(), source.fetcher);
         const url = await node.listen(0);
-        expect((await fetch(url + '/')).headers.get('content-type')).toContain('text/html');
+        expect((await fetch(url + '/build')).headers.get('content-type')).toContain('text/html');
+        expect(await (await fetch(url + '/build/')).text()).toContain('Build your card.');
         expect(await (await fetch(url + '/health')).json()).toMatchObject({
             service: 'CodeStats', runtime: 'ready',
         });
@@ -178,7 +179,12 @@ describe('Node runtime and persistent snapshots', () => {
         expect(JSON.stringify(value)).not.toContain('fixture-repo');
         const svg = await fetch(url + '/card.svg');
         expect(svg.headers.get('content-type')).toContain('image/svg+xml');
-        expect(await svg.text()).toContain('TypeScript');
+        const markup = await svg.text();
+        expect(markup).toContain('TypeScript');
+        expect(markup).toContain('@media(prefers-color-scheme:dark)');
+        const homepage = await fetch(url + '/');
+        expect(homepage.headers.get('content-type')).toContain('image/svg+xml');
+        expect(await homepage.text()).toContain('@media(prefers-color-scheme:dark)');
         const etag = svg.headers.get('etag')!;
         const notModified = await fetch(url + '/card.svg', {
             headers: { 'If-None-Match': etag },
