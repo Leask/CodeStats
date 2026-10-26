@@ -20,11 +20,12 @@ const creations = (
 ) => ({ nodes, totalCount, pageInfo: { hasNextPage, endCursor } });
 const collection = (
     commits: unknown[] = [], issues: unknown[] = [], prs: unknown[] = [],
-    created = creations(),
+    created = creations(), reviews: unknown[] = [],
 ) => ({
     commitContributionsByRepository: commits,
     issueContributionsByRepository: issues,
     pullRequestContributionsByRepository: prs,
+    pullRequestReviewContributionsByRepository: reviews,
     repositoryContributions: created,
 });
 
@@ -115,6 +116,7 @@ describe('GitHub personal activity collector', () => {
         });
         const data = await fetchGitHubActivity(env, fetcher, NOW);
         expect(data).toMatchObject({
+            collectionVersion: 2,
             username: 'Leask', visibility: 'all', commits: 500,
             pullRequestsCommented: 7, pullRequestsReviewed: 5,
             issuesCommented: 9, discussionsStarted: 6,
@@ -158,40 +160,72 @@ describe('GitHub personal activity collector', () => {
             / 86_400_000).toBe(366);
     });
 
-    it('splits saturated repository lists and deduplicates complete child ranges', async () => {
-        const saturated = Array.from({ length: 100 }, (_, index) =>
-            repository(`discard-parent-${index}`));
+    it('includes review-only repositories and deduplicates them across years and types', async () => {
         const { fetcher, requests } = fixture(request => {
             if (!request.query.includes('query ActivityRepositories')) return;
-            const entries = ranges(request.query).map(range => [range.key,
-                range.from === '2024-01-01T00:00:00Z'
-                    && range.to === '2024-12-31T23:59:59Z'
-                    ? collection(saturated)
-                    : collection([repository('same-id')], [repository('second-id')])]);
-            return response({ user: Object.fromEntries(entries) });
-        }, profile([2024]));
+            return response({ user: Object.fromEntries(ranges(request.query)
+                .map(range => [range.key, collection([
+                    repository('also-committed'),
+                ], [], [], creations(), [
+                    repository('also-committed'),
+                    repository('review-only'),
+                    repository('own-review', 'account-id'),
+                ])])) });
+        });
         const data = await fetchGitHubActivity(env, fetcher, NOW);
         expect(data.allTimeContributedRepositories).toBe(2);
-        const calls = requests.filter(request => request.query
-            .includes('query ActivityRepositories'));
-        expect(calls).toHaveLength(2);
-        const children = ranges(calls[1].query);
-        expect(Date.parse(children[0].to) + 1000).toBe(Date.parse(children[1].from));
-        expect(children[0].from).toBe('2024-01-01T00:00:00Z');
-        expect(children[1].to).toBe('2024-12-31T23:59:59Z');
+        expect(data.scope).toContain('PR, review and repository creation');
+        expect(JSON.stringify(data)).not.toContain('review-only');
+        const initial = requests.find(request => request.query
+            .includes('query ActivityProfile'))!;
+        expect(initial.query).toContain('PULL_REQUEST_REVIEW');
     });
 
-    it('refuses saturated single days rather than accepting truncated counts', async () => {
-        const { fetcher } = fixture(request => {
-            if (!request.query.includes('query ActivityRepositories')) return;
-            return response({ user: { range_0: collection(Array.from(
-                { length: 100 }, (_, index) => repository(`private-${index}`),
-            )) } });
-        }, profile([2026]));
-        await expect(fetchGitHubActivity(env, fetcher,
-            Date.parse('2026-01-01T23:59:59Z'))).rejects.toThrow('daily repository limit');
-    });
+    it.each(['commits', 'reviews'] as const)(
+        'splits saturated %s repository lists and deduplicates child ranges',
+        async kind => {
+            const saturated = Array.from({ length: 100 }, (_, index) =>
+                repository(`discard-parent-${index}`));
+            const parentCollection = kind === 'commits'
+                ? collection(saturated)
+                : collection([], [], [], creations(), saturated);
+            const { fetcher, requests } = fixture(request => {
+                if (!request.query.includes('query ActivityRepositories')) return;
+                const entries = ranges(request.query).map(range => [range.key,
+                    range.from === '2024-01-01T00:00:00Z'
+                        && range.to === '2024-12-31T23:59:59Z'
+                        ? parentCollection
+                        : collection([repository('same-id')], [repository('second-id')])]);
+                return response({ user: Object.fromEntries(entries) });
+            }, profile([2024]));
+            const data = await fetchGitHubActivity(env, fetcher, NOW);
+            expect(data.allTimeContributedRepositories).toBe(2);
+            const calls = requests.filter(request => request.query
+                .includes('query ActivityRepositories'));
+            expect(calls).toHaveLength(2);
+            const children = ranges(calls[1].query);
+            expect(Date.parse(children[0].to) + 1000).toBe(Date.parse(children[1].from));
+            expect(children[0].from).toBe('2024-01-01T00:00:00Z');
+            expect(children[1].to).toBe('2024-12-31T23:59:59Z');
+        },
+    );
 
+    it.each(['commits', 'reviews'] as const)(
+        'refuses saturated single days for %s rather than accepting truncation',
+        async kind => {
+            const { fetcher } = fixture(request => {
+                if (!request.query.includes('query ActivityRepositories')) return;
+                const saturated = Array.from(
+                    { length: 100 }, (_, index) => repository(`private-${index}`),
+                );
+                return response({ user: { range_0: kind === 'commits'
+                    ? collection(saturated)
+                    : collection([], [], [], creations(), saturated) } });
+            }, profile([2026]));
+            await expect(fetchGitHubActivity(env, fetcher,
+                Date.parse('2026-01-01T23:59:59Z'))).rejects.toThrow('daily repository limit');
+        },
+    );
     it('paginates repository creations and excludes currently owned repositories', async () => {
         const { fetcher, requests } = fixture(request => {
             if (request.query.includes('query ActivityRepositories')) {

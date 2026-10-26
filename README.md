@@ -93,7 +93,8 @@ commented, discussions started and accepted answers. Annual contribution
 calendar totals are collected for every reported contribution year, with
 restricted contributions included once. Recent review contributions and recent
 contributed repositories use GitHub's recent-year semantics; lifetime contributed
-repositories are deduplicated across years and contribution types, excluding
+repositories are deduplicated across years for commits, issues, PRs, PR reviews
+and repository creation, including review-only external repositories and excluding
 currently owned repositories. Saturated repository lists are split into smaller
 date intervals and unresolved truncation fails closed.
 

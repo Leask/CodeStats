@@ -33,5 +33,6 @@ export function createProfileCache(
         retrySeconds: seconds(env.RETRY_SECONDS, 900, 60),
         githubKey: env.GITHUB_VISIBILITY === 'all' ? 'github:all-v1' : 'github',
         githubActivityKey: `github:activity:${env.GITHUB_VISIBILITY ?? 'public'}:v1`,
+        githubActivityCollectionVersion: 2,
     });
 }

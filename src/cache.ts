@@ -20,6 +20,7 @@ interface Policy {
     now?: () => number;
     githubKey?: string;
     githubActivityKey?: string;
+    githubActivityCollectionVersion?: number;
 }
 
 type WaitUntil = (promise: Promise<unknown>) => void;
@@ -44,13 +45,17 @@ export class SnapshotCache {
         this.now = policy.now ?? Date.now;
     }
 
-    private classify<T>(value: SourceSnapshot<T>): SourceSnapshot<T> {
+    private classify<T>(
+        value: SourceSnapshot<T>,
+        isCurrent: (data: T) => boolean = () => true,
+    ): SourceSnapshot<T> {
         const age = value.lastSuccessAt === null
             ? Infinity : this.now() - Date.parse(value.lastSuccessAt);
         return {
             ...value,
             status: value.data === null ? 'unavailable'
-                : age < this.policy.freshSeconds * 1000 ? 'fresh' : 'stale',
+                : age < this.policy.freshSeconds * 1000 && isCurrent(value.data)
+                ? 'fresh' : 'stale',
         };
     }
 
@@ -58,6 +63,7 @@ export class SnapshotCache {
         key: string,
         old: SourceSnapshot<T>,
         loader: () => Promise<T>,
+        isCurrent: (data: T) => boolean,
     ): Promise<SourceSnapshot<T>> {
         const existing = this.inFlight.get(key);
         if (existing) {
@@ -97,7 +103,7 @@ export class SnapshotCache {
                         : key.startsWith('github')
                         ? 'GitHub refresh failed. Showing the last successful snapshot when available.'
                         : 'WakaTime refresh failed. Check the published range or OAuth access; saved data is retained.',
-                });
+                }, isCurrent);
                 try {
                     await this.storage.put(key, result);
                 } catch {
@@ -119,6 +125,7 @@ export class SnapshotCache {
         key: string,
         loader: () => Promise<T>,
         waitUntil: WaitUntil,
+        isCurrent: (data: T) => boolean = () => true,
     ): Promise<SourceSnapshot<T>> {
         let stored: SourceSnapshot<T>;
         try {
@@ -130,7 +137,7 @@ export class SnapshotCache {
                 lastError: 'Snapshot storage is temporarily unavailable.',
             };
         }
-        const current = this.classify(stored);
+        const current = this.classify(stored, isCurrent);
         const running = this.inFlight.get(key);
         if (running && current.data === null) {
             return running as Promise<SourceSnapshot<T>>;
@@ -140,7 +147,7 @@ export class SnapshotCache {
         if (current.status === 'fresh' || !retryDue) {
             return current;
         }
-        const operation = this.refresh(key, current, loader);
+        const operation = this.refresh(key, current, loader, isCurrent);
         if (current.data !== null) {
             // Readable old data is returned immediately while refresh proceeds.
             waitUntil(operation);
@@ -157,7 +164,10 @@ export class SnapshotCache {
                 () => this.loaders.wakatime(range), waitUntil),
             this.loaders.githubActivity
                 ? this.source(this.policy.githubActivityKey ?? 'github:activity',
-                    this.loaders.githubActivity, waitUntil) : undefined,
+                    this.loaders.githubActivity, waitUntil,
+                    data => this.policy.githubActivityCollectionVersion === undefined
+                        || data.collectionVersion === this.policy.githubActivityCollectionVersion,
+                ) : undefined,
         ]);
         return {
             schemaVersion: 1, github, wakatime, range,

@@ -242,7 +242,7 @@ describe('GitHub personal activity', () => {
         expect(svg).toContain('excluding their own pull requests');
         expect(svg).toContain('not a commit count');
         expect(svg).toContain('on default branches');
-        expect(svg).toContain('review-only repositories are excluded');
+        expect(svg).toContain('review-only repositories are included');
         expect(svg).toContain('GitHub recent-year repositoriesContributedTo count');
         expect(svg).toContain('FRESH SNAPSHOT');
     });

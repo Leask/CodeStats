@@ -31,7 +31,8 @@ const PROFILE = `query ActivityProfile($login: String!,
             totalPullRequestReviewContributions
         }
         repositoriesContributedTo(first: 1, includeUserRepositories: false,
-            contributionTypes: [COMMIT, ISSUE, PULL_REQUEST, REPOSITORY]) {
+            contributionTypes: [COMMIT, ISSUE, PULL_REQUEST,
+                PULL_REQUEST_REVIEW, REPOSITORY]) {
             totalCount
         }
     }
@@ -211,6 +212,7 @@ export async function fetchGitHubActivity(
         'commitContributionsByRepository',
         'issueContributionsByRepository',
         'pullRequestContributionsByRepository',
+        'pullRequestReviewContributionsByRepository',
     ];
     const fields = repositoryFields.map(field => `${field}(maxRepositories: 100)
         { ${REPOSITORY_FIELDS} }`).join('\n')
@@ -289,6 +291,7 @@ export async function fetchGitHubActivity(
         `commenter:${username} -author:${username} type:issue`);
 
     return {
+        collectionVersion: 2,
         username,
         visibility: 'all',
         scope: 'Personal activity across token-visible public, private and internal '
@@ -296,8 +299,9 @@ export async function fetchGitHubActivity(
             + 'Commits: lifetime search-indexed default branches. Commented and '
             + 'reviewed items: distinct non-self-authored issues or PRs. '
             + 'Review contributions and contributed repositories: recent year. '
-            + 'Lifetime repository count: visible commit, issue, PR and repository '
-            + 'creation contributions, excluding currently owned repositories. '
+            + 'Lifetime repository count: visible commit, issue, PR, review and '
+            + 'repository creation contributions, excluding currently owned '
+            + 'repositories. '
             + 'Annual totals: GitHub contribution calendar; restricted counts '
             + (restrictedContributions > 0 ? 'are included once.' : 'are zero.')
             + ' Access remains limited by token permissions and organization policy.',

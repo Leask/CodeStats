@@ -8,7 +8,7 @@ notes are research references only.
 ## Automated checks
 
 - Strict TypeScript check passes.
-- All92 tests in six files pass: official API collectors, pagination and scope
+- All98 tests in six files pass: official API collectors, pagination and scope
   checks, rendering, independent source caches and eight Node integration tests.
 - Ten isolated real-workerd/SQLite checks pass. Warm successful snapshots survive
   injected upstream503 failures and runtime restart with their original success
@@ -27,6 +27,24 @@ WakaTime origins. GitHub core, personal activity and WakaTime all-time snapshots
 all returned fresh, nonempty data. WakaTime currently returns104 language rows,
 joined into129 language mappings with GitHub. These are observed values, not
 fixtures or permanent expectations.
+
+The subsequent completeness audit corrected the omission of review-only external
+repositories from both recent and lifetime repository aggregates. Version2
+activity refreshed successfully in the original Node and Worker caches, keeping
+GitHub-core and WakaTime success timestamps unchanged. Unit tests verify that a
+version1 record is served as stale during migration and remains stale, readable
+and protected by the upstream cooldown after a failed refresh and restart.
+
+The live audit returned383 owned repositories (197 public/186 private),301
+non-fork analyzed repositories,63 code languages,17 matching REST/GraphQL
+organization memberships and17 contribution years. The configured WakaTime
+collector and a separate public all-time request match:104 languages,
+50,656,159.73059 seconds including
+Other, beginning Dec11,2014, with today excluded by the source. Language seconds,
+repository counts, language bytes and annual contribution totals reconcile.
+These observations were checked on2026-10-26; they are not fixed expectations.
+The ignored `artifacts/collection-coverage.json` records the14 live checks.
+This configured all-time range is public and does not require a WakaTime token.
 
 Both processes were gracefully stopped and recreated over their original cache
 directories. The three provider payloads and all original success timestamps

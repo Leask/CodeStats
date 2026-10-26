@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
@@ -67,6 +67,7 @@ const outboundService = async request => {
                 }],
                 issueContributionsByRepository: [],
                 pullRequestContributionsByRepository: [],
+                pullRequestReviewContributionsByRepository: [],
                 repositoryContributions: { totalCount: 0, nodes: [],
                     pageInfo: { hasNextPage: false, endCursor: null } },
             },
@@ -184,4 +185,5 @@ try {
     console.log(JSON.stringify(result));
 } finally {
     await mf.dispose();
+    await rm(directory, { recursive: true, force: true });
 }

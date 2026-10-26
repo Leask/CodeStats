@@ -419,6 +419,14 @@ describe('WakaTime collector', () => {
             .rejects.toThrow('incomplete or pending');
     });
 
+    it('rejects partial calculation even when the source claims freshness', async () => {
+        const { fetcher } = sequence([
+            json({ ...waka, is_up_to_date: true, percent_calculated: 99 }),
+        ]);
+        await expect(fetchWakaTime(wakaEnv, 'all_time', fetcher))
+            .rejects.toThrow('incomplete or pending');
+    });
+
     it('rejects missing or non-boolean freshness in a 200 response', async () => {
         const { is_up_to_date, ...withoutFreshness } = waka;
         const missing = sequence([json(withoutFreshness)]);

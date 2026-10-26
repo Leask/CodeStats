@@ -77,6 +77,57 @@ function harness() {
 }
 
 describe('durable last-good snapshots', () => {
+    it('refreshes an older collection without discarding its saved data', async () => {
+        const h = harness();
+        const original = new SnapshotCache(h.storage, {
+            ...h.loaders, githubActivity: async () => activity,
+        }, h.policy);
+        const before = await original.read('all_time', h.wait);
+        const updated = { ...activity, collectionVersion: 2 as const,
+            allTimeContributedRepositories: 8 };
+        const migrated = new SnapshotCache(h.storage, {
+            ...h.loaders, githubActivity: async () => updated,
+        }, { ...h.policy, githubActivityCollectionVersion: 2 });
+        const refreshing = await migrated.read('all_time', h.wait);
+        expect(refreshing.githubActivity?.status).toBe('stale');
+        expect(refreshing.githubActivity?.data).toEqual(activity);
+        expect(refreshing.githubActivity?.lastSuccessAt)
+            .toBe(before.githubActivity?.lastSuccessAt);
+        await h.flush();
+        const after = await migrated.read('all_time', h.wait);
+        expect(after.githubActivity?.status).toBe('fresh');
+        expect(after.githubActivity?.data).toEqual(updated);
+        expect(after.github).toEqual(before.github);
+        expect(after.wakatime).toEqual(before.wakatime);
+    });
+
+    it('keeps old collection coverage stale through failure and restart', async () => {
+        const h = harness();
+        const original = new SnapshotCache(h.storage, {
+            ...h.loaders, githubActivity: async () => activity,
+        }, h.policy);
+        const before = await original.read('all_time', h.wait);
+        let calls = 0;
+        const loaders = { ...h.loaders, githubActivity: async () => {
+            calls++;
+            throw new UpstreamError('GitHub rate limited.', 3600);
+        } };
+        const policy = { ...h.policy, githubActivityCollectionVersion: 2 };
+        const migrated = new SnapshotCache(h.storage, loaders, policy);
+        await migrated.read('all_time', h.wait);
+        await h.flush();
+        const restarted = new SnapshotCache(h.storage, loaders, policy);
+        const after = await restarted.read('all_time', h.wait);
+        expect(after.githubActivity?.status).toBe('stale');
+        expect(after.githubActivity?.data).toEqual(activity);
+        expect(after.githubActivity?.lastSuccessAt)
+            .toBe(before.githubActivity?.lastSuccessAt);
+        expect(after.githubActivity?.lastError).toContain('rate limited');
+        expect(calls).toBe(1);
+        expect(after.github).toEqual(before.github);
+        expect(after.wakatime).toEqual(before.wakatime);
+    });
+
     it('isolates private/public GitHub records while preserving WakaTime', async () => {
         const h = harness();
         await h.engine.read('all_time', h.wait);

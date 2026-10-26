@@ -22,6 +22,8 @@ export interface GitHubData {
 
 /** Aggregate personal activity; never expose private repository identities. */
 export interface GitHubActivityData {
+    /** Missing on older saved snapshots that omitted review-only repositories. */
+    collectionVersion?: 2;
     username: string;
     visibility: 'public' | 'all';
     scope: string;

@@ -69,7 +69,9 @@ export async function fetchWakaTime(
     const data = envelope?.data as JsonObject | undefined;
     if (!data || typeof data !== 'object' || Array.isArray(data)
         || !Array.isArray(data.languages) || data.is_up_to_date !== true
-        || data.is_stuck === true) {
+        || data.is_stuck === true
+        || (data.percent_calculated !== undefined
+            && data.percent_calculated !== 100)) {
         throw new UpstreamError('WakaTime returned incomplete or pending statistics.');
     }
     if (data.range !== undefined && data.range !== range) {

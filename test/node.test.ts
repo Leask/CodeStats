@@ -82,6 +82,7 @@ function upstream() {
                 } }],
                 issueContributionsByRepository: [],
                 pullRequestContributionsByRepository: [],
+                pullRequestReviewContributionsByRepository: [],
                 repositoryContributions: { totalCount: 0, nodes: [],
                     pageInfo: { hasNextPage: false, endCursor: null } },
             } } } });

@@ -112,7 +112,7 @@ Stats Extended service and no dependency on its package.
 | Discussions answered | User `repositoryDiscussionComments(onlyAnswers:true).totalCount`; authored comments marked as accepted answers. |
 | Recent review contributions | Explicit one-year `contributionsCollection` interval; not every submitted review event. |
 | All-time contribution calendar | Read `contributionYears`, query each UTC calendar year with explicit, nonoverlapping bounds, and sum `contributionCalendar.totalContributions`. Preserve annual values; do not add restricted counts again. |
-| Repositories contributed to | Global recent-year repository connection; lifetime needs deduplicated repository identities across years/types. Saturated lists require smaller intervals or complete pagination; otherwise retain the last-good value with a coverage error. |
+| Repositories contributed to | Recent-year repository connection includes commits, issues, PRs, PR reviews and repository creation. Lifetime deduplicates those five contribution types across years, including review-only external repositories. Saturated lists require smaller intervals or complete pagination; otherwise retain the last-good value with a coverage error. |
 
 Organization and external contributions follow the user's identity, without an
 `owner:Leask` restriction. A whole organization repository's code must not be

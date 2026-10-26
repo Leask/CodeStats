@@ -93,9 +93,9 @@ const ACTIVITY_METRICS = [
         source: 'githubActivity', key: 'allTimeContributedRepositories',
         label: 'Repos contributed to', period: 'lifetime',
         definition: 'Distinct currently non-owned repositories reached by visible '
-            + 'commit, issue, pull request and repository-creation contributions '
+            + 'commit, issue, pull request, review and repository-creation contributions '
             + 'across collected account years. Deduplicated across years and '
-            + 'contribution types; review-only repositories are excluded.',
+            + 'contribution types; review-only repositories are included.',
     },
     {
         source: 'githubActivity', key: 'reviewContributions',
@@ -108,7 +108,7 @@ const ACTIVITY_METRICS = [
         source: 'githubActivity', key: 'contributedRepositories',
         label: 'Repos contributed to', period: 'recent',
         definition: 'GitHub recent-year repositoriesContributedTo count, excluding '
-            + 'currently user-owned repositories, for commit, issue, pull request '
+            + 'currently user-owned repositories, for commit, issue, pull request, review '
             + 'and repository-creation contributions. GitHub eligibility and '
             + 'visibility rules apply.',
     },

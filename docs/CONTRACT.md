@@ -24,7 +24,8 @@ Reject SSO partial results. Collect indexed authored commits, distinct non-self
 PR/issue participation, discussions/accepted answers, recent review/repository
 contributions and all reported calendar years. Never add restricted contributions
 to the already inclusive calendar total. Lifetime external repository counts
-deduplicate transient IDs across contribution types/years; saturated intervals
+deduplicate transient IDs across commit, issue, PR, review and repository-creation
+contributions/years; saturated intervals
 split or fail closed. Private activity is unavailable in public-only mode rather
 than silently publishing mixed-scope aggregates.
 
@@ -52,6 +53,9 @@ documentation must cover both runtimes.
 Persistent Durable Object storage retains separate core, activity and WakaTime
 last-success records without TTL deletion. GitHub scope keys are isolated while
 the original profile object/WakaTime range keys remain stable. Fresh TTL defaults6h;
-failure cooldown15m, extended by upstream rate-limit/reset headers. Background refresh returns existing
+failure cooldown15m, extended by upstream rate-limit/reset headers. Activity
+collectionVersion2 includes review-only repositories: older saved activity is
+served as stale and refreshed in its existing key, preserving the original
+last-good data and success timestamp if refresh fails. Background refresh returns existing
 data quickly; on cold start wait for initial refresh. Single profile DO coalesces
 concurrent refreshes. No scheduled trigger is added in this local-first iteration.
