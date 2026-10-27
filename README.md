@@ -4,6 +4,8 @@ Deploy your own GitHub + WakaTime profile card, then paste one Markdown snippet
 into your GitHub README. Run the same application on **Node.js** or
 **Cloudflare Workers**.
 
+[![CodeStats](https://codestats.leask.workers.dev/)](https://github.com/Leask/CodeStats)
+
 CodeStats reads the official GitHub and WakaTime APIs directly. Each deployment
 serves one configured profile and keeps its last successful statistics when an
 upstream API is unavailable. It does not depend on another statistics-card service.
