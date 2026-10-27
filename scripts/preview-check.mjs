@@ -72,7 +72,7 @@ try {
         && expected.github.data.scope.includes('organization/collaborator stars excluded')
         && card.includes('>' + expected.github.data.stars.toLocaleString('en-US')
             + '</text>');
-    checks.relativeTimeHeader = />WAKATIME · RECENT (?:\d+ (?:YEARS?|MONTHS?|DAYS?)|ACTIVITY)<\/text>/.test(card)
+    checks.sourceColumnHeaders = card.includes('>WAKATIME · CODE TIME</text>')
         && card.includes('>GITHUB · CODE BYTES</text>');
     checks.compactFooter = card.includes('data-refresh-times="true"')
         && card.includes('data-project-credit="true" href="https://github.com/Leask/CodeStats"')
@@ -88,7 +88,7 @@ try {
     checks.cardDisplayedShares = hundred(cardShares(523), 10)
         && hundred(cardShares(841), 10);
     checks.githubColumnFirst = /<text x="225" y="258"[^>]*>GITHUB · CODE BYTES<\/text>/.test(card)
-        && /<text x="558" y="258"[^>]*>WAKATIME · RECENT /.test(card)
+        && /<text x="558" y="258"[^>]*>WAKATIME · CODE TIME<\/text>/.test(card)
         && JSON.stringify(await page.locator('#language-details th').allTextContents())
             === JSON.stringify(['Language', 'Code share', 'Time', 'Time share']);
     checks.defaultTenRows = svgNames.length === Math.min(10, names.length);
@@ -183,7 +183,9 @@ try {
     checks.footerLayout = true;
     checks.twoSummaryRows = true;
     checks.profileHeader = true;
+    checks.avatarRankRing = true;
     checks.languageSubtitles = true;
+    checks.threeFontSizes = true;
     const clipping = [];
     for (const view of ['overview', 'activity']) {
         for (const theme of ['dark', 'light', 'transparent']) {
@@ -199,12 +201,42 @@ try {
                 });
             });
             clipping.push(...overflow);
+            checks.threeFontSizes &&= await svgPage.evaluate(() => {
+                const size = node => Number.parseFloat(getComputedStyle(node).fontSize);
+                const texts = [...document.querySelectorAll('text')];
+                return texts.every(node => [27, 13, 11].includes(size(node)))
+                    && size(document.querySelector('[data-profile-name]')) === 27
+                    && [...document.querySelectorAll('[data-summary-metric]')]
+                        .every(group => size(group.querySelector('text')) === 27)
+                    && [...document.querySelectorAll('[data-language-icon]')]
+                        .every(icon => size(icon.parentNode.querySelector('text')) === 13);
+            });
             const rank = profileRank(expected.github.data, expected.githubActivity.data);
+            checks.avatarRankRing &&= await svgPage.evaluate(rank => {
+                const rim = document.querySelector('[data-avatar-rank-rim]');
+                const arc = document.querySelector('[data-avatar-rank-progress]');
+                const avatar = document.querySelector('#avatar-clip circle');
+                return !!rim && !!arc && !!avatar
+                    && ['cx', 'cy', 'r', 'stroke', 'stroke-width'].every(key =>
+                        rim.getAttribute(key) === arc.getAttribute(key))
+                    && rim.getAttribute('opacity') === '0.2'
+                    && arc.getAttribute('opacity') === '0.8'
+                    && arc.getAttribute('pathLength') === '100'
+                    && arc.getAttribute('stroke-dasharray') === '100'
+                    && arc.getAttribute('transform') === 'rotate(-90 66 78)'
+                    && Math.abs(Number(arc.getAttribute('stroke-dashoffset'))
+                        - rank.percentile) < 0.000001
+                    && rim.getAttribute('r') === avatar.getAttribute('r')
+                    && rim.getAttribute('stroke-width') === '3';
+            }, rank);
+            await svgPage.emulateMedia({ reducedMotion: 'reduce' });
+            checks.avatarRankRing &&= await svgPage.locator(
+                '[data-avatar-rank-progress]',
+            ).evaluate(arc => getComputedStyle(arc).animationName === 'none');
             checks.profileHeader &&= await svgPage.evaluate(({ name, username, bio, rank }) => {
                 const header = document.querySelector('[data-profile-header]');
                 const avatar = header.querySelector('image[data-github-avatar]');
                 const identity = header.querySelector('[data-profile-name]');
-                const handle = identity.querySelector('tspan');
                 const description = header.querySelector('[data-profile-description] text');
                 const imageBox = avatar?.getBoundingClientRect();
                 const nameBox = identity.getBoundingClientRect();
@@ -212,8 +244,8 @@ try {
                 const textCenter = (nameBox.top + bioBox.bottom) / 2;
                 const imageCenter = (imageBox.top + imageBox.bottom) / 2;
                 return !!avatar && /^data:image\//.test(avatar.getAttribute('href'))
-                    && identity.textContent === name + '@' + username
-                    && handle.getAttribute('fill') !== identity.getAttribute('fill')
+                    && identity.textContent === name
+                    && !identity.textContent.includes('@' + username)
                     && header.querySelector('[data-profile-description] title').textContent === bio
                     && bio.startsWith(description.textContent.replace(/…$/, ''))
                     && !header.querySelector('[data-profile-rank]')
@@ -253,7 +285,7 @@ try {
                     });
                 });
             }
-            checks.footerLayout &&= await svgPage.evaluate(rank => {
+            checks.footerLayout &&= await svgPage.evaluate(({ rank, username }) => {
                 const ranking = document.querySelector('[data-profile-rank]');
                 const trophy = ranking.querySelector('[data-rank-icon]')
                     .getBoundingClientRect();
@@ -265,15 +297,16 @@ try {
                 const credit = document.querySelector('[data-project-credit]');
                 const logo = credit.querySelector('svg').getBoundingClientRect();
                 const text = credit.querySelector('text').getBoundingClientRect();
-                return rating.textContent === 'Top '
+                const iconGaps = [ratingBox.left - trophy.right,
+                    times.left - clock.right, text.left - logo.right];
+                return rating.textContent === '@' + username + ' · Top '
                     + (rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2))
                     + '% · ' + rank.level
-                    && trophy.right + 4 <= ratingBox.left
+                    && iconGaps.every(gap => Math.abs(gap - 6) < 0.5)
                     && ratingBox.right + 16 <= clock.left
-                    && clock.right + 4 <= times.left
-                    && times.right + 16 <= logo.left && logo.right + 4 <= text.left
+                    && times.right + 16 <= logo.left
                     && Math.abs(ratingBox.bottom - times.bottom) < 2;
-            }, rank);
+            }, { rank, username: expected.github.data.username });
             const suffix = view === 'overview' ? theme : 'activity-' + theme;
             await svgPage.screenshot({ path: 'artifacts/card-' + suffix + '.png' });
         }
@@ -287,6 +320,7 @@ try {
             const bounds = root.getBoundingClientRect();
             const metrics = [...root.querySelectorAll('[data-summary-metric]')];
             return !root.querySelector('[data-profile-header]')
+                && !root.querySelector('[data-avatar-rank-ring]')
                 && !!root.querySelector('[data-profile-rank] [data-rank-icon]')
                 && root.querySelector('[data-profile-rank]').getBoundingClientRect().right
                     < root.querySelector('[data-refresh-times]').getBoundingClientRect().left

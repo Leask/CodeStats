@@ -80,18 +80,18 @@ rows before calculating Others. This only affects percentage display and bar
 widths; exact seconds, bytes, selection and source/cache values are unchanged.
 Missing, empty or incomplete source shares are never filled to100%.
 
-The right SVG column heading shows the saved WakaTime span as
-`WAKATIME · RECENT 12 YEARS`, `WAKATIME · RECENT 6 MONTHS` or
-`WAKATIME · RECENT 7 DAYS`. Years
+The right SVG column heading is `WAKATIME · CODE TIME`, paired with
+`GITHUB · CODE BYTES` on the left. Its tooltip shows the saved WakaTime span as
+`Recent 12 years`, `Recent 6 months` or `Recent 7 days`. Years
 and months are rounded to the nearest whole unit. Precise source dates are
 preferred; a published `since` date uses the saved source-success timestamp as
 its cutoff, so a stale card does not keep aging. Fixed7/30-day ranges have
-fallback labels; an unknown all-time span displays `WAKATIME · RECENT ACTIVITY`. The
-GitHub column remains `GITHUB · CODE BYTES`.
+fallback labels; an unknown all-time span uses `Recent activity` in the tooltip.
 
 The compact SVG footer shows a clock followed by `GitHub: 2 hr, 8 mins ago |
 WakaTime: 4 hr, 58 mins ago`, based on each
-last successful refresh at card-generation time. Missing refreshes say
+last successful refresh at card-generation time. Zero hour/minute units are
+omitted; ages under one minute say `just now`. Missing refreshes say
 `not refreshed`. The right-hand GitHub mark and `Power by
 github.com/Leask/CodeStats` link to this repository. Absolute timestamps and
 source semantics remain in accessible SVG metadata and preview details.
@@ -118,12 +118,21 @@ date intervals and unresolved truncation fails closed.
 Commit search covers indexed default branches. Calendar contributions follow
 GitHub eligibility rules and differ from commit counts. Search scope limits,
 deleted records and lost access prevent claiming every historical action.
-Counts and periods remain explicitly labeled. The profile header additionally
+Counts and periods remain explicitly labeled. The footer additionally
 shows the reference project's weighted rank estimate, using lifetime indexed
 commits, authored PRs/issues, recent review contributions, owned stars and
 followers. It is a heuristic percentile rather than a measured global leaderboard.
 Levels and thresholds match the reference: S (top1%), A+ (top12.5%), A, A-, B+,
 B, B-, C+, C. Repository count and calendar contributions do not affect this rank.
+The avatar has a thin border at its edge using the reference-style two-circle
+ring: a full, dim track underneath
+an arc showing `100 - percentile`, starting at the top and moving clockwise.
+The arc animates once and respects reduced-motion preferences. Without rank data,
+only the dim track is shown; `header=false` also hides the avatar and ring.
+Card typography uses three fixed sizes: 27px for the name and metric values,
+13px for language names, and 11px for labels, descriptions and footer text.
+Long names are shortened and large metric values use compact notation, with
+the full counts retained in tooltips. Long footers wrap instead of shrinking.
 The public profile bio takes precedence over a public, unexpired status message;
 organization-only status messages are never published. Small public GitHub avatars
 are embedded in the cached SVG data, so README images need no nested remote fetch.

@@ -267,16 +267,12 @@ function day(value: string | undefined): string {
         ? new Date(value).toISOString().slice(0, 10) : 'date unavailable';
 }
 
-function shortened(value: string, maximum: number): string {
-    return value.length > maximum ? value.slice(0, maximum - 1) + '…' : value;
-}
-
-function profileLine(value: string): string {
+function profileLine(value: string, maximum = 55): string {
     let units = 0;
     let result = '';
     for (const char of value) {
         units += /[^\u0000-\u00ff]/.test(char) ? 1 : 0.62;
-        if (units > 55) return result + '…';
+        if (units > maximum) return result + '…';
         result += char;
     }
     return result;
@@ -479,6 +475,12 @@ function number(value: number | undefined): string {
         ? '—' : Math.round(value).toLocaleString('en-US');
 }
 
+function metricNumber(value: string): string {
+    return value.length <= 8 ? value : new Intl.NumberFormat('en-US', {
+        notation: 'compact', maximumFractionDigits: 1,
+    }).format(Number(value.replaceAll(',', '')));
+}
+
 function duration(seconds: number): string {
     const minutes = Math.floor(finite(seconds) / 60);
     const hours = Math.floor(minutes / 60);
@@ -499,9 +501,13 @@ export function refreshAge(lastSuccessAt: string | null, at: string): string {
     const difference = Date.parse(at) - Date.parse(lastSuccessAt ?? '');
     if (!Number.isFinite(difference)) return 'not refreshed';
     const minutes = Math.max(0, Math.floor(difference / 60_000));
+    if (minutes === 0) return 'just now';
+    const hours = Math.floor(minutes / 60);
     const remainder = minutes % 60;
-    return `${number(Math.floor(minutes / 60))} hr, ${remainder} `
-        + `min${remainder === 1 ? '' : 's'} ago`;
+    const parts = [];
+    if (hours) parts.push(`${number(hours)} hr`);
+    if (remainder) parts.push(`${remainder} min${remainder === 1 ? '' : 's'}`);
+    return parts.join(', ') + ' ago';
 }
 
 function date(value: string | null): string {
@@ -550,6 +556,7 @@ function sourceLine<T>(name: string, source: SourceSnapshot<T>): string {
 }
 
 export function renderCard(snapshot: StatsSnapshot, options: CardOptions): string {
+    const font = { large: 27, medium: 13, small: 11 } as const;
     const light = options.theme === 'light';
     const transparent = options.theme === 'transparent';
     const lightPalette = {
@@ -580,7 +587,6 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const hiddenHeaderHeight = options.header === false ? 100 : 0;
     const contentOffset = 61 - hiddenHeaderHeight;
     const footerY = 257 + contentOffset + bodyHeight;
-    const height = footerY + 40;
     const github = snapshot.github.data;
     const activitySource = githubActivitySource(snapshot);
     const githubActivity = activitySource.data;
@@ -590,10 +596,30 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const title = `${username} · coding footprint`;
     const allVisible = github?.visibility === 'all';
     const activityAllVisible = githubActivity?.visibility === 'all';
-    const fullName = shortened(github?.name ?? username, 36);
+    const fullName = profileLine(github?.name ?? username, 24);
     const profileDescription = github?.bio?.trim()
         || github?.profileStatus?.trim() || '';
     const rank = profileRank(github, githubActivity);
+    // Reference rank ring: a complete dim rim plus 100 - percentile progress.
+    const avatarRankRing = '<g data-avatar-rank-ring="true">'
+        + '<title>' + (rank ? xml(`Rank progress: ${(100 - rank.percentile).toFixed(2)}%`)
+            : 'Rank data unavailable') + '</title>'
+        + `<circle data-avatar-rank-rim="true" cx="66" cy="78" r="34" `
+        + `fill="none" stroke="${palette.time}" stroke-width="3" opacity="0.2"/>`
+        + (rank ? `<circle data-avatar-rank-progress="true" cx="66" cy="78" r="34" `
+            + `fill="none" stroke="${palette.time}" stroke-width="3" opacity="0.8" `
+            + 'pathLength="100" stroke-dasharray="100" '
+            + `stroke-dashoffset="${rank.percentile.toFixed(6)}" `
+            // Flat ends preserve the visible gap even for very high ranks.
+            + 'stroke-linecap="butt" transform="rotate(-90 66 78)"/>' : '')
+        + '</g>';
+    const avatarRankStyles = rank && options.header !== false
+        ? '@keyframes avatarRankProgress{from{stroke-dashoffset:100}'
+            + `to{stroke-dashoffset:${rank.percentile.toFixed(6)}}}`
+            + '[data-avatar-rank-progress]{animation:avatarRankProgress 1s ease-in-out both}'
+            + '@media(prefers-reduced-motion:reduce){'
+            + '[data-avatar-rank-progress]{animation:none}}'
+        : '';
     const metrics = [
         {
             id: 'coding-time',
@@ -603,7 +629,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         {
             id: 'calendar-contributions',
             value: number(githubActivity?.allTimeContributions),
-            label: 'CALENDAR CONTRIBUTIONS',
+            label: 'CALENDAR CONTRIBS.',
         },
         {
             id: 'repositories',
@@ -632,15 +658,12 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         },
     ];
     const text = (
-        x: number, y: number, value: unknown, size = 12,
+        x: number, y: number, value: unknown, size: number = font.small,
         fill = palette.fg, extra = '',
     ) => `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}" ${extra}>${xml(value)}</text>`;
     const avatar = github?.avatarDataUri;
     const embeddedAvatar = typeof avatar === 'string'
         && /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(avatar);
-    const nameUnits = [...fullName].reduce((sum, char) =>
-        sum + (/[^\u0000-\u00ff]/.test(char) ? 1 : 0.62), 0);
-    const nameSize = Math.min(26, 680 / (nameUnits + (username.length + 1) * 0.42));
     const profileHeader = '<g data-profile-header="true">'
         + '<defs><clipPath id="avatar-clip">'
         + '<circle cx="66" cy="78" r="34"/></clipPath></defs>'
@@ -649,51 +672,60 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
                 + `href="${xml(avatar)}" clip-path="url(#avatar-clip)" `
                 + 'preserveAspectRatio="xMidYMid slice"/>'
             : `<circle cx="66" cy="78" r="34" fill="${palette.panel}"/>`
-                + text(66, 89, username.slice(0, 1).toUpperCase(), 30,
-                    palette.muted, 'text-anchor="middle"'))
+                + text(66, 78, username.slice(0, 1).toUpperCase(), font.large,
+                    palette.muted, 'text-anchor="middle" dominant-baseline="central"'))
+        + avatarRankRing
         + '<g data-profile-text="true">'
         + `<text data-profile-name="true" x="116" y="${profileDescription ? 68 : 78}" `
-        + `dominant-baseline="central" font-size="${nameSize.toFixed(2)}" `
-        + `fill="${palette.fg}" font-weight="650">${xml(fullName)}`
-        + `<tspan dx="12" font-size="${(nameSize * 0.68).toFixed(2)}" `
-        + `fill="${palette.muted}" font-weight="400">@${xml(username)}</tspan></text>`
+        + `dominant-baseline="central" font-size="${font.large}" `
+        + `fill="${palette.fg}" font-weight="650">${xml(fullName)}</text>`
         + '<g data-profile-description="true"><title>' + xml(profileDescription) + '</title>'
-        + text(116, 78 + (nameSize + 8) / 2,
-            profileLine(profileDescription), 12, palette.muted,
+        + text(116, 78 + (font.large + 8) / 2,
+            profileLine(profileDescription), font.small, palette.muted,
             'dominant-baseline="central"') + '</g></g></g>';
-    const footerRank = rank ? '<g data-profile-rank="true">'
-        + '<title>Estimated percentile from the '
+    const footerLabel = '@' + username + (rank ? ' · Top '
+        + `${rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2)}% · ${rank.level}` : '');
+    const footerLabelX = rank ? 52 : 32;
+    const footerLabelWidth = footerLabel.length * font.small * 0.6;
+    const refreshLabel = `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)} | `
+        + `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`;
+    const inlineRefreshX = Math.ceil(footerLabelX + footerLabelWidth + 16);
+    const wrapFooter = footerLabelWidth > 220
+        || inlineRefreshX + 20 + refreshLabel.length * font.small * 0.56 > 594;
+    const refreshX = wrapFooter ? 32 : inlineRefreshX;
+    const refreshY = footerY + 29 + (wrapFooter ? 22 : 0);
+    const height = footerY + 40 + (wrapFooter ? 22 : 0);
+    const footerRank = `<g data-profile-${rank ? 'rank' : 'identity'}="true">`
+        + (rank ? '<title>Estimated percentile from the '
         + 'GitHub Stats Extended weighted model: commits, PRs, issues, recent '
         + 'review contributions, owned stars and followers.</title>'
         + `<svg data-rank-icon="true" x="32" y="${footerY + 18}" `
         + `width="14" height="14" viewBox="0 0 16 16" fill="${palette.time}" `
-        + `aria-hidden="true"><path d="${TROPHY_ICON}"/></svg>`
-        + text(52, footerY + 29, 'Top '
-            + `${rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2)}% · ${rank.level}`,
-        10, palette.time) + '</g>' : '';
-    const refreshX = rank ? 150 : 32;
+        + `aria-hidden="true"><path d="${TROPHY_ICON}"/></svg>` : '')
+        + text(footerLabelX, footerY + 29, footerLabel,
+            font.small, rank ? palette.time : palette.muted) + '</g>';
     const metricMarkup = metrics.map((metric, index) => {
         const x = 32 + index % 4 * 211;
         const y = 166 - hiddenHeaderHeight
             + Math.floor(index / 4) * metricRowHeight;
-        const valueX = x + 42;
-        const size = Math.min(29, Math.floor(142 / (metric.value.length * 0.62)));
-        const iconSize = 36;
+        const valueX = x + 48;
+        const iconSize = 38;
         // Include the label baseline and its descenders in the text block.
-        const iconY = y + (26 - size - iconSize) / 2;
+        const iconY = y + (27 - font.large - iconSize) / 2;
         return `<g data-summary-metric="${metric.id}">`
+            + '<title>' + xml(`${metric.label}: ${metric.value}`) + '</title>'
             + `<svg data-summary-icon="${metric.id}" x="${x}" y="${iconY}" `
             + `width="${iconSize}" height="${iconSize}" viewBox="0 0 16 16" aria-hidden="true" `
             + `fill="${palette.muted}"><path d="${METRIC_ICONS[metric.id]}"/></svg>`
-            + text(valueX, y, metric.value, size, palette.fg, 'font-weight="650"')
-            + text(valueX, y + 23, metric.label, 10, palette.muted, 'letter-spacing="1"')
+            + text(valueX, y, metricNumber(metric.value), font.large, palette.fg, 'font-weight="650"')
+            + text(valueX, y + 23, metric.label, font.small, palette.muted, 'letter-spacing="0.5"')
             + '</g>';
     }).join('');
     let body = '';
     if (activity) {
         const scope = !githubActivity ? 'PERSONAL ACTIVITY'
             : activityAllVisible ? 'TOKEN-VISIBLE ACTIVITY' : 'PUBLIC ACTIVITY';
-        body = text(32, 257, `GITHUB · ${scope}`, 10, palette.muted, 'letter-spacing="1.2"');
+        body = text(32, 257, `GITHUB · ${scope}`, font.small, palette.muted, 'letter-spacing="1.2"');
         body += ACTIVITY_METRICS.map((metric, index) => {
             const x = 32 + index % 4 * 211;
             const y = 303 + Math.floor(index / 4) * 83;
@@ -702,35 +734,36 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             const label = metric.source === 'github' && !allVisible
                 && ['pullRequests', 'issues'].includes(metric.key)
                 ? 'Public ' + metric.label : metric.label;
-            const size = Math.min(28, Math.floor(184 / (value.length * 0.62)));
             return '<g><title>' + xml(`${label}: ${value}. ${metric.definition} `
                 + `Period: ${ACTIVITY_PERIODS[metric.period]}.`)
                 + '</title>'
-                + text(x, y, value, size, palette.fg, 'font-weight="600"')
-                + text(x, y + 22, label, 12, palette.fg)
-                + text(x, y + 40, ACTIVITY_PERIODS[metric.period], 10, palette.muted)
+                + text(x, y, metricNumber(value), font.large, palette.fg, 'font-weight="600"')
+                + text(x, y + 22, label, font.small, palette.fg)
+                + text(x, y + 40, ACTIVITY_PERIODS[metric.period], font.small, palette.muted)
                 + '</g>';
         }).join('');
         const periods = githubActivity
             ? `Lifetime: ${day(githubActivity.allTimeFrom)}–${day(githubActivity.allTimeTo)}. `
                 + `Recent year: ${day(githubActivity.recentFrom)}–${day(githubActivity.recentTo)}.`
             : 'GitHub activity has no successful snapshot yet. A dash means unavailable, not zero.';
-        body += text(32, 637, periods, 11, palette.muted);
-        body += text(32, 659, 'Reviewed/commented items exclude self-authored items; each distinct item counts once.', 11, palette.muted);
+        body += text(32, 637, periods, font.small, palette.muted);
+        body += text(32, 659, 'Reviewed/commented items exclude self-authored items; each distinct item counts once.', font.small, palette.muted);
         body += text(32, 681, !githubActivity
             ? 'Activity scope unavailable. Existing authorship and repository metrics retain their own source scope.'
             : activityAllVisible
             ? 'Public + private aggregates visible to the token, including organizations and external repositories.'
             : 'Public aggregates, including organizations and external repositories. GitHub eligibility rules apply.',
-        10, palette.muted);
+        font.small, palette.muted);
     } else if (empty) {
-        body = text(32, 285, 'Waiting for the first successful source snapshot.', 16)
-            + text(32, 311, 'Existing saved data will appear here whenever a source is temporarily unavailable.', 12, palette.muted);
+        body = text(32, 285, 'Waiting for the first successful source snapshot.', font.medium)
+            + text(32, 311, 'Existing saved data will appear here whenever a source is temporarily unavailable.', font.small, palette.muted);
     } else {
-        body = text(32, 258, 'LANGUAGE', 10, palette.muted, 'letter-spacing="1.1"')
-            + text(225, 258, 'GITHUB · CODE BYTES', 10, palette.code, 'letter-spacing="1"')
-            + text(558, 258, 'WAKATIME · ' + timeRangeLabel(snapshot).toUpperCase(),
-                10, palette.time, 'letter-spacing="1"');
+        body = text(32, 258, 'LANGUAGE', font.small, palette.muted, 'letter-spacing="1.1"')
+            + text(225, 258, 'GITHUB · CODE BYTES', font.small, palette.code, 'letter-spacing="1"')
+            + '<g data-wakatime-column="true"><title>WakaTime · '
+            + xml(timeRangeLabel(snapshot)) + '</title>'
+            + text(558, 258, 'WAKATIME · CODE TIME',
+                font.small, palette.time, 'letter-spacing="1"') + '</g>';
         body += rows.map((row, index) => {
             const y = 289 + index * 39;
             const name = row.name.length > 23 ? row.name.slice(0, 22) + '…' : row.name;
@@ -738,19 +771,19 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             const codeWidth = Math.min(100, row.codePercent ?? 0) * 2.49;
             return `<g><title>${xml(row.name)}: WakaTime ${row.timePercent.toFixed(2)}%; `
                 + `GitHub ${row.codePercent === null ? 'not comparable' : row.codePercent.toFixed(2) + '%'}</title>`
-                + `<svg data-language-icon="${xml(row.name)}" x="32" y="${y - 10}" `
-                + `width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" `
+                + `<svg data-language-icon="${xml(row.name)}" x="31" y="${y - 11}" `
+                + `width="26" height="26" viewBox="0 0 24 24" aria-hidden="true" `
                 + `fill="${row.color}"><path fill-rule="${row.name === 'SQL' ? 'evenodd' : 'nonzero'}" `
                 + `d="${xml(languageIcon(row.name, LANGUAGE_ICONS))}"/></svg>`
-                + text(64, y, name, 13, palette.fg, 'font-weight="500"')
+                + text(64, y, name, font.medium, palette.fg, 'font-weight="500"')
                 + text(64, y + 14, `${codeSize(row.codeBytes)} · `
-                    + (waka ? duration(row.seconds) : '—'), 10, palette.muted)
+                    + (waka ? duration(row.seconds) : '—'), font.small, palette.muted)
                 + `<rect x="225" y="${y - 10}" width="249" height="7" rx="3.5" fill="${palette.track}"/>`
                 + `<rect x="225" y="${y - 10}" width="${codeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.code}"/>`
-                + text(523, y, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, 11, palette.code, 'text-anchor="end"')
+                + text(523, y, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, font.small, palette.code, 'text-anchor="end"')
                 + `<rect x="558" y="${y - 10}" width="210" height="7" rx="3.5" fill="${palette.track}"/>`
                 + `<rect x="558" y="${y - 10}" width="${timeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.time}"/>`
-                + text(841, y, waka ? `${row.timePercent.toFixed(1)}%` : '—', 11, palette.time, 'text-anchor="end"')
+                + text(841, y, waka ? `${row.timePercent.toFixed(1)}%` : '—', font.small, palette.time, 'text-anchor="end"')
                 + '</g>';
         }).join('');
     }
@@ -772,7 +805,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             + ACTIVITY_METRICS.map((metric) => `${metric.label}: ${metric.definition}`).join(' ')) : '')
         + '</desc><style>' + transparentStyles
         + 'text{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif}'
-        + '.numeric{font-variant-numeric:tabular-nums}</style>'
+        + '.numeric{font-variant-numeric:tabular-nums}' + avatarRankStyles + '</style>'
         + `<rect x=".5" y=".5" width="879" height="${height - 1}" rx="22" `
         + `fill="${transparent ? 'none' : palette.bg}" stroke="${palette.line}"/>`
         + '<g transform="translate(0 -20)">'
@@ -782,16 +815,15 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `<g transform="translate(0 ${contentOffset})">${body}</g>`
         + `<path d="M32 ${footerY}H848" stroke="${palette.line}"/>`
         + footerRank
-        + `<g data-refresh-times="true"><svg x="${refreshX}" y="${footerY + 18}" width="14" height="14" `
+        + `<g data-refresh-times="true"><svg x="${refreshX}" y="${refreshY - 11}" width="14" height="14" `
         + `viewBox="0 0 16 16" fill="${palette.muted}" aria-hidden="true"><path d="${CLOCK_ICON}"/></svg>`
-        + text(refreshX + 20, footerY + 29, `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)} | `
-            + `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`, 10, palette.muted)
+        + text(refreshX + 20, refreshY, refreshLabel, font.small, palette.muted)
         + '</g><a data-project-credit="true" href="https://github.com/Leask/CodeStats" '
         + 'target="_blank" rel="noopener noreferrer">'
-        + `<svg x="638" y="${footerY + 18}" width="14" height="14" viewBox="0 0 16 16" `
+        + `<svg x="610" y="${refreshY - 11}" width="14" height="14" viewBox="0 0 16 16" `
         + `fill="${palette.muted}" aria-hidden="true"><path d="${GITHUB_ICON}"/></svg>`
-        + `<text x="848" y="${footerY + 29}" font-size="10" `
-        + `fill="${palette.muted}" text-anchor="end">Power by github.com/Leask/`
+        + `<text x="630" y="${refreshY}" font-size="${font.small}" `
+        + `fill="${palette.muted}">Power by github.com/Leask/`
         + `<tspan fill="${palette.time}" font-weight="650">CodeStats</tspan></text>`
         + '</a></g>'
         + '</svg>';
@@ -1131,7 +1163,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     function updateCard() {
         const image = $('card');
         $('stage').className = 'card-stage ' + $('theme').value;
-        image.src = '/card.svg?' + params();
+        image.src = '/card.svg?' + params() + '&preview=' + Date.now();
         image.hidden = false;
         $('json-link').href = '/api/stats?range=' + encodeURIComponent($('range').value);
         updateTable(); updateSnippet();

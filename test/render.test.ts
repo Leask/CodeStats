@@ -5,6 +5,7 @@ import {
 } from '../src/render';
 import type { CardOptions, LanguageRow, StatsSnapshot } from '../src/types';
 import { LANGUAGE_ICONS, languageIcon } from '../src/language-icons';
+import { profileRank } from '../src/rank';
 
 const options: CardOptions = {
     theme: 'dark', view: 'overview', limit: 8, sort: 'time',
@@ -388,6 +389,7 @@ describe('safe README SVG', () => {
             expect(hidden).not.toContain('data-profile-header');
             expect(hidden).not.toContain('data-profile-name');
             expect(hidden).not.toContain('data-profile-description');
+            expect(hidden).not.toContain('data-avatar-rank-ring');
             expect(hidden).toContain('data-profile-rank');
             expect(hidden).toContain('data-rank-icon="true"');
             expect(hidden.indexOf('data-profile-rank'))
@@ -403,7 +405,7 @@ describe('safe README SVG', () => {
 
     it('shows two relative refresh ages and linked project credit in a compact footer', () => {
         const svg = renderCard(snapshot(), options);
-        expect(svg).toContain('GitHub: 1 hr, 0 mins ago | WakaTime: 1 hr, 30 mins ago');
+        expect(svg).toContain('GitHub: 1 hr ago | WakaTime: 1 hr, 30 mins ago');
         expect(svg).toContain('data-refresh-times="true"');
         expect(svg).not.toContain('data-profile-rank');
         expect(svg).toContain('data-project-credit="true" href="https://github.com/Leask/CodeStats"');
@@ -416,9 +418,13 @@ describe('safe README SVG', () => {
         expect(refreshAge(null, snapshot().generatedAt)).toBe('not refreshed');
         expect(refreshAge('invalid', snapshot().generatedAt)).toBe('not refreshed');
         expect(refreshAge('2026-10-25T18:00:00Z', snapshot().generatedAt))
-            .toBe('0 hr, 0 mins ago');
+            .toBe('just now');
         expect(refreshAge('2026-10-25T16:59:00Z', snapshot().generatedAt))
-            .toBe('0 hr, 1 min ago');
+            .toBe('1 min ago');
+        expect(refreshAge('2026-10-25T16:19:00Z', snapshot().generatedAt))
+            .toBe('41 mins ago');
+        expect(refreshAge('2026-10-25T13:00:00Z', snapshot().generatedAt))
+            .toBe('4 hr ago');
     });
 
     it.each([
@@ -434,7 +440,8 @@ describe('safe README SVG', () => {
         data.wakatime.data!.end = end;
         expect(timeRangeLabel(data)).toBe(expected);
         const svg = renderCard(data, options);
-        expect(svg).toContain(`>WAKATIME · ${expected.toUpperCase()}</text>`);
+        expect(svg).toContain(`<title>WakaTime · ${expected}</title>`);
+        expect(svg).toContain('>WAKATIME · CODE TIME</text>');
         expect(svg).toContain('>GITHUB · CODE BYTES</text>');
         expect(svg).not.toContain('WAKATIME · ALL TIME');
     });
@@ -512,7 +519,7 @@ describe('safe README SVG', () => {
         expect(svg.match(/<g><title>/g)).toHaveLength(100);
         expect(svg).not.toContain('full source totals');
         expect(svg).toContain('Others: WakaTime');
-        expect(svg).toContain('x="64" y="303" font-size="10"');
+        expect(svg).toContain('x="64" y="303" font-size="11"');
         expect(svg).not.toContain('x="207" y="289"');
     });
 
@@ -598,7 +605,8 @@ describe('GitHub personal activity', () => {
         for (const view of ['overview', 'languages'] as const) {
             const existing = renderCard(data, { ...options, view });
             expect(existing).toContain('GitHub activity · unavailable');
-            expect(existing).toContain('RECENT 7 YEARS');
+            expect(existing).toContain('<title>WakaTime · Recent 7 years</title>');
+            expect(existing).toContain('>WAKATIME · CODE TIME</text>');
         }
     });
 
@@ -626,7 +634,7 @@ describe('GitHub personal activity', () => {
         data.wakatime.status = 'unavailable';
         const svg = renderCard(data, { ...options, view: 'activity' });
         expect(svg).toContain(' · unavailable · ');
-        expect(svg).toContain('>@Leask</tspan>');
+        expect(svg).toContain('>@Leask</text>');
         expect(svg).toContain('>98,765</text>');
     });
 
@@ -667,6 +675,29 @@ describe('GitHub personal activity', () => {
         expect(svg.match(/data-summary-icon="/g)).toHaveLength(8);
     });
 
+    it('renders the reference percentile ring around the avatar', () => {
+        const data = activitySnapshot();
+        const rank = profileRank(data.github.data, data.githubActivity!.data)!;
+        const svg = renderCard(data, options);
+        expect(svg).toContain('data-avatar-rank-rim="true" cx="66" cy="78" r="34"');
+        expect(svg).toContain('stroke-width="3" opacity="0.2"');
+        expect(svg).toContain('pathLength="100" stroke-dasharray="100"');
+        const offset = svg.match(/stroke-dashoffset="([\d.]+)"/)![1];
+        expect(100 - Number(offset)).toBeCloseTo(100 - rank.percentile, 5);
+        expect(svg).toContain('transform="rotate(-90 66 78)"');
+        expect(svg).toContain('prefers-reduced-motion:reduce');
+        const unknown = renderCard(snapshot(), options);
+        expect(unknown).toContain('data-avatar-rank-rim="true"');
+        expect(unknown).not.toContain('data-avatar-rank-progress');
+        Object.assign(data.github.data!, {
+            pullRequests: 0, issues: 0, stars: 0, followers: 0,
+        });
+        Object.assign(data.githubActivity!.data!, {
+            commits: 0, reviewContributions: 0,
+        });
+        expect(renderCard(data, options)).toContain('stroke-dashoffset="100.000000"');
+    });
+
     it('renders two profile lines and keeps the rank in the footer', () => {
         const data = activitySnapshot();
         Object.assign(data.github.data!, {
@@ -676,11 +707,11 @@ describe('GitHub personal activity', () => {
         const svg = renderCard(data, options);
         expect(svg).toContain('data-github-avatar="true"');
         expect(svg).toContain('<circle cx="66" cy="78" r="34"/>');
-        expect(svg).toContain('>Full Name<tspan');
-        expect(svg).toContain('>@Leask</tspan>');
+        expect(svg).toContain('>Full Name</text>');
+        expect(svg.match(/@Leask/g)).toHaveLength(1);
         expect(svg).toContain('Builds &lt;tools&gt;');
         expect(svg).not.toContain('Fallback status');
-        expect(svg).toContain('Top 14.39% · A');
+        expect(svg).toContain('>@Leask · Top 14.39% · A</text>');
         expect(svg.match(/data-profile-rank=/g)).toHaveLength(1);
         expect(svg.indexOf('data-profile-rank'))
             .toBeGreaterThan(svg.indexOf('data-summary-metric'));
@@ -706,7 +737,11 @@ describe('GitHub personal activity', () => {
         expect(svg).not.toContain('NaN');
         expect(svg).toContain('PRs commented on: —.');
         expect(svg).toContain('Issues commented on: —.');
-        expect(svg).toContain('font-size="14"');
+        expect(svg).toContain('font-size="27"');
+        expect(svg).toContain('Commits: 9,007,199,254,740,991.');
+        expect(svg).toContain('>' + new Intl.NumberFormat('en-US', {
+            notation: 'compact', maximumFractionDigits: 1,
+        }).format(Number.MAX_SAFE_INTEGER) + '</text>');
         const height = Number(svg.match(/height="(\d+)"/)![1]);
         for (const match of svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"/g)) {
             expect(Number(match[1])).toBeLessThanOrEqual(848);
