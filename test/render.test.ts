@@ -434,7 +434,7 @@ describe('safe README SVG', () => {
         data.wakatime.data!.end = end;
         expect(timeRangeLabel(data)).toBe(expected);
         const svg = renderCard(data, options);
-        expect(svg).toContain(`>${expected.toUpperCase()}</text>`);
+        expect(svg).toContain(`>WAKATIME · ${expected.toUpperCase()}</text>`);
         expect(svg).toContain('>GITHUB · CODE BYTES</text>');
         expect(svg).not.toContain('WAKATIME · ALL TIME');
     });

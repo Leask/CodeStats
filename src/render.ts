@@ -729,7 +729,8 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     } else {
         body = text(32, 258, 'LANGUAGE', 10, palette.muted, 'letter-spacing="1.1"')
             + text(225, 258, 'GITHUB · CODE BYTES', 10, palette.code, 'letter-spacing="1"')
-            + text(558, 258, timeRangeLabel(snapshot).toUpperCase(), 10, palette.time, 'letter-spacing="1"');
+            + text(558, 258, 'WAKATIME · ' + timeRangeLabel(snapshot).toUpperCase(),
+                10, palette.time, 'letter-spacing="1"');
         body += rows.map((row, index) => {
             const y = 289 + index * 39;
             const name = row.name.length > 23 ? row.name.slice(0, 22) + '…' : row.name;

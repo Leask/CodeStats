@@ -72,8 +72,7 @@ try {
         && expected.github.data.scope.includes('organization/collaborator stars excluded')
         && card.includes('>' + expected.github.data.stars.toLocaleString('en-US')
             + '</text>');
-    checks.relativeTimeHeader = />RECENT (?:\d+ (?:YEARS?|MONTHS?|DAYS?)|ACTIVITY)<\/text>/.test(card)
-        && !card.includes('WAKATIME ·')
+    checks.relativeTimeHeader = />WAKATIME · RECENT (?:\d+ (?:YEARS?|MONTHS?|DAYS?)|ACTIVITY)<\/text>/.test(card)
         && card.includes('>GITHUB · CODE BYTES</text>');
     checks.compactFooter = card.includes('data-refresh-times="true"')
         && card.includes('data-project-credit="true" href="https://github.com/Leask/CodeStats"')
@@ -89,7 +88,7 @@ try {
     checks.cardDisplayedShares = hundred(cardShares(523), 10)
         && hundred(cardShares(841), 10);
     checks.githubColumnFirst = /<text x="225" y="258"[^>]*>GITHUB · CODE BYTES<\/text>/.test(card)
-        && /<text x="558" y="258"[^>]*>RECENT /.test(card)
+        && /<text x="558" y="258"[^>]*>WAKATIME · RECENT /.test(card)
         && JSON.stringify(await page.locator('#language-details th').allTextContents())
             === JSON.stringify(['Language', 'Code share', 'Time', 'Time share']);
     checks.defaultTenRows = svgNames.length === Math.min(10, names.length);

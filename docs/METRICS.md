@@ -80,12 +80,13 @@ rows before calculating Others. This only affects percentage display and bar
 widths; exact seconds, bytes, selection and source/cache values are unchanged.
 Missing, empty or incomplete source shares are never filled to100%.
 
-The left SVG column heading shows the saved WakaTime span as `Recent 12 years`,
-`Recent 6 months` or `Recent 7 days`. Years
+The right SVG column heading shows the saved WakaTime span as
+`WAKATIME · RECENT 12 YEARS`, `WAKATIME · RECENT 6 MONTHS` or
+`WAKATIME · RECENT 7 DAYS`. Years
 and months are rounded to the nearest whole unit. Precise source dates are
 preferred; a published `since` date uses the saved source-success timestamp as
 its cutoff, so a stale card does not keep aging. Fixed7/30-day ranges have
-fallback labels; an unknown all-time span displays `Recent activity`. The
+fallback labels; an unknown all-time span displays `WAKATIME · RECENT ACTIVITY`. The
 GitHub column remains `GITHUB · CODE BYTES`.
 
 The compact SVG footer shows a clock followed by `GitHub: 2 hr, 8 mins ago |
