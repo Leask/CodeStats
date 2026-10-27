@@ -671,7 +671,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + text(52, footerY + 29, 'Top '
             + `${rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2)}% · ${rank.level}`,
         10, palette.time) + '</g>' : '';
-    const refreshX = rank ? 170 : 32;
+    const refreshX = rank ? 150 : 32;
     const metricMarkup = metrics.map((metric, index) => {
         const x = 32 + index % 4 * 211;
         const y = 166 - hiddenHeaderHeight
