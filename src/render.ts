@@ -335,7 +335,7 @@ function alternateRanks<T>(first: T[], second: T[]): T[] {
 /** Pick both sources' leaders, then display them with a complete remainder. */
 export function selectLanguages(
     rows: LanguageRow[],
-    sort: CardOptions['sort'] = 'time',
+    sort: CardOptions['sort'] = 'code',
     limit = 10,
     codeAvailable = rows.some(row => row.codeBytes !== null),
 ): LanguageRow[] {
@@ -898,9 +898,10 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <option value="true">Show</option><option value="false">Hide</option></select></div>
 <div class="control"><label for="view">View</label><select id="view"><option value="overview">Overview</option>
 <option value="languages">Language detail</option><option value="activity">GitHub activity</option></select></div>
-<div class="control"><label for="sort">Language order</label><select id="sort"><option value="time">Coding time first</option>
+<div class="control"><label for="sort">Language order</label><select id="sort"><option value="code">GitHub code first</option>
+<option value="time">Coding time first</option>
 <option value="alternating">Selection order</option>
-<option value="code">GitHub code first</option><option value="name">Alphabetical</option></select></div>
+<option value="name">Alphabetical</option></select></div>
 </form>
 <section class="source-panel"><h2 class="section-title">Two upstream services</h2><p class="detail-note">GitHub has two cached datasets; WakaTime has one.</p>
 <div class="source-state"><div class="source-head"><span>GitHub · repositories</span><span class="badge" id="github-status">Loading</span></div>
@@ -916,7 +917,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <img id="card" alt="Unified WakaTime and GitHub profile statistics" hidden></div>
 <p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures current repository language bytes, not personally authored lines.</p>
 <details id="language-details"><summary>Language breakdown <small id="language-count">Waiting for data</small></summary>
-<div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating GitHub and WakaTime ranks, starting with GitHub, then ordered by coding time by default. Others includes every remaining group and unclassified time. Both source totals are fully represented, with separate denominators. Raw values remain in the source JSON. A dash means unavailable data.</p>
+<div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating GitHub and WakaTime ranks, starting with GitHub, then ordered by GitHub code bytes by default. Others includes every remaining group and unclassified time. Both source totals are fully represented, with separate denominators. Raw values remain in the source JSON. A dash means unavailable data.</p>
 <div class="table-wrap"><table><thead><tr><th>Language</th><th>Code share</th><th>Time</th><th>Time share</th></tr></thead>
 <tbody id="language-body"></tbody></table></div></div></details>
 <details id="activity-details"><summary>GitHub activity <small id="activity-summary">Waiting for data</small></summary>
@@ -949,7 +950,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     const controls = ['range', 'theme', 'header', 'view', 'sort'];
     const defaults = { range: ${JSON.stringify(defaultRange)},
         theme: 'transparent', header: 'true',
-        view: 'overview', sort: 'time', limit: '10' };
+        view: 'overview', sort: 'code', limit: '10' };
     const query = new URLSearchParams(location.search);
     for (const id of controls) {
         const value = query.get(id) || defaults[id];

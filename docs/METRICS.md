@@ -35,7 +35,7 @@ that its APIs make visible to your token.
 The default card and expanded table show nine named groups plus **Others**.
 After grouping, selection alternates descending GitHub bytes and WakaTime
 seconds, starting with GitHub and skipping duplicates and the upstream Other category, until nine groups
-are selected. Those nine are displayed by descending WakaTime time. Others is
+are selected. Those nine are displayed by descending GitHub code bytes. Others is
 always last and sums every remaining group plus WakaTime's unclassified Other.
 Both columns therefore represent the complete collected data, not just a top-N
 subset. Display sorting changes order, not which groups are selected.

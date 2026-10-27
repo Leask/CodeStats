@@ -188,7 +188,7 @@ describe('language comparison', () => {
         data.wakatime.data!.totalSeconds = 12100;
         const all = joinLanguages(data);
         const before = JSON.stringify(all);
-        const rows = selectLanguages(all);
+        const rows = selectLanguages(all, 'time');
         expect(rows.map(row => row.name)).toEqual([
             'A', 'B', 'LangC', 'D', 'U', 'V', 'W', 'X', 'Y', 'Others',
         ]);
@@ -198,7 +198,7 @@ describe('language comparison', () => {
         expect(rows.reduce((sum, row) => sum + row.timePercent, 0)).toBeCloseTo(100);
         expect(rows.reduce((sum, row) => sum + (row.codePercent ?? 0), 0)).toBeCloseTo(100);
         expect(JSON.stringify(all)).toBe(before);
-        expect(selectLanguages(all, 'code').slice(0, 4).map(row => row.name))
+        expect(selectLanguages(all).slice(0, 4).map(row => row.name))
             .toEqual(['U', 'V', 'W', 'X']);
         expect(selectLanguages(all, 'name').at(-1)!.name).toBe('Others');
     });
@@ -207,7 +207,7 @@ describe('language comparison', () => {
         const data = snapshot();
         const rows = selectLanguages(joinLanguages(data));
         expect(rows.map(row => row.name))
-            .toEqual(['Shell', 'JavaScript/TypeScript', 'C/C++', 'Others']);
+            .toEqual(['JavaScript/TypeScript', 'C/C++', 'Shell', 'Others']);
         expect(rows.at(-1)).toMatchObject({ seconds: 3000, codeBytes: 0, codePercent: 0 });
         expect(selectLanguages(joinLanguages(data), 'time', 1))
             .toMatchObject([{ name: 'Others', seconds: 10000, codeBytes: 1000 }]);

@@ -13,7 +13,7 @@ function rangeFrom(url: URL, env: Settings): Range {
 function cardOptions(url: URL): CardOptions {
     const theme = url.searchParams.get('theme') ?? 'transparent';
     const view = url.searchParams.get('view') ?? 'overview';
-    const sort = url.searchParams.get('sort') ?? 'time';
+    const sort = url.searchParams.get('sort') ?? 'code';
     const header = url.searchParams.get('header') ?? 'true';
     if (!['dark', 'light', 'transparent'].includes(theme)
         || !['overview', 'languages', 'activity'].includes(view)

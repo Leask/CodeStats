@@ -105,7 +105,7 @@ Example:
 | `header` | `true`, `false`; show or hide the avatar, name and bio | `true` |
 | `view` | `overview`, `languages`, `activity` | `overview` |
 | `limit` | Integers1–100; the final row is the unselected remainder | `10` |
-| `sort` | `time`, `code`, `name`, `alternating` | `time` |
+| `sort` | `time`, `code`, `name`, `alternating` | `code` |
 
 Range changes affect WakaTime, not the periods of GitHub activity. The range must
 be public or authorized on WakaTime. The default ten language rows are nine named

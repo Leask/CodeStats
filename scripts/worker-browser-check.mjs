@@ -74,6 +74,7 @@ try {
         .includes('Configure a server-side GITHUB_TOKEN');
     checks.wakaStillFresh = await page.locator('#wakatime-status').textContent() === 'fresh';
     checks.transparentDefault = await page.locator('#theme').inputValue() === 'transparent';
+    checks.codeDefault = await page.locator('#sort').inputValue() === 'code';
     checks.readmeVisible = await page.locator('#readme-details').evaluate(node => node.open);
     const defaultMarkdown = '[![CodeStats](' + origin + '/)](https://github.com/Leask/CodeStats)';
     checks.compactProjectLinkedMarkdown = await page.locator('#snippet').textContent()

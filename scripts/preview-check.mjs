@@ -58,14 +58,14 @@ try {
         .reduce((sum, row) => sum + row.bytes, 0);
     checks.groupedCodeShare = c[1]
         === (100 * bytes / expected.github.data.totalBytes).toFixed(2) + '%';
-    checks.timeDefault = await page.locator('#sort').inputValue() === 'time';
+    checks.codeDefault = await page.locator('#sort').inputValue() === 'code';
     const timeShares = displayed.map(row => parseFloat(row[3]));
     const codeShares = displayed.map(row => parseFloat(row[1]));
     const hundred = (values, scale) => values.reduce((sum, value) =>
         sum + Math.round(value * scale), 0) === 100 * scale;
     checks.completeTimeShare = hundred(timeShares, 100);
     checks.completeCodeShare = hundred(codeShares, 100);
-    checks.timeDescending = timeShares.slice(0, -1)
+    checks.codeDescending = codeShares.slice(0, -1)
         .every((value, index, values) => index === 0 || values[index - 1] >= value);
     const card = await (await context.request.get(base + '/card.svg')).text();
     checks.ownedStarScope = expected.github.data.collectionVersion >= 5
@@ -115,9 +115,9 @@ try {
     await page.screenshot({ path: 'artifacts/preview-desktop.png', fullPage: true });
     await page.locator('#language-details summary').click();
     checks.expansion = await page.locator('#language-details').getAttribute('open') !== null;
-    await page.locator('#sort').selectOption('code');
+    await page.locator('#sort').selectOption('time');
     await page.locator('#card').evaluate(image => image.decode());
-    checks.sort = (await page.locator('#card').getAttribute('src')).includes('sort=code');
+    checks.sort = (await page.locator('#card').getAttribute('src')).includes('sort=time');
     checks.othersAlwaysLast = await page.locator('#language-body tr:last-child td:first-child')
         .textContent() === 'Others';
     await page.locator('#theme').selectOption('light');
