@@ -13,7 +13,8 @@ upstream API is unavailable. It does not depend on another statistics-card servi
 - GitHub avatar, name, bio/status and reference-style rank estimate.
 - Coding time, calendar contributions, repositories, indexed commits, PRs,
   issues, followers and owned-repository stars.
-- Combined language table: WakaTime hours alongside GitHub byte percentages.
+- Combined language table: deduplicated repo counts, GitHub bytes and WakaTime
+  hours, with independently scaled bars and true percentages.
 - Light, dark and transparent SVGs, plus expandable GitHub README sections.
 - A `/build` card builder with **Copy Markdown** and persistent last-good caching.
 

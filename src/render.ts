@@ -2,6 +2,7 @@ import type {
     CardOptions,
     LanguageRow,
     Range,
+    RepositoryLanguageCount,
     SourceSnapshot,
     StatsSnapshot,
 } from './types';
@@ -54,6 +55,7 @@ const ALIASES: Record<string, string> = {
     jsonc: 'config',
     'json with comments': 'config',
     tsconfig: 'config',
+    'json/yaml/toml/ini': 'config',
     'sublime text config': 'config',
     xml: 'config',
     xslt: 'config',
@@ -313,6 +315,19 @@ function finite(value: number): number {
     return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
+/** A repository can match several raw languages but counts once per group. */
+function repositoriesUsing(
+    counts: RepositoryLanguageCount[] | undefined,
+    names: string[],
+): number | null {
+    if (counts === undefined) return null;
+    const selected = new Set(names.map(canonical));
+    return counts.reduce((sum, item) => sum + (
+        item.languages.some(name => selected.has(canonical(name)))
+            ? item.repositories : 0
+    ), 0);
+}
+
 /** Alternate ranked sources, keeping each already-merged row only once. */
 function alternateRanks<T>(first: T[], second: T[]): T[] {
     const result: T[] = [];
@@ -334,6 +349,7 @@ export function selectLanguages(
     sort: CardOptions['sort'] = 'code',
     limit = 10,
     codeAvailable = rows.some(row => row.codeBytes !== null),
+    repositoryCounts?: RepositoryLanguageCount[],
 ): LanguageRow[] {
     const count = Math.min(100, Math.max(1, Math.floor(limit) || 10));
     const byCode = (a: LanguageRow, b: LanguageRow) =>
@@ -364,6 +380,9 @@ export function selectLanguages(
             codePercent: codeAvailable ? remainder.reduce(
                 (sum, row) => sum + (row.codePercent ?? 0), 0,
             ) : null,
+            repositoryCount: repositoriesUsing(
+                repositoryCounts, remainder.map(row => row.name),
+            ),
         });
     }
     return selected;
@@ -407,6 +426,16 @@ export function joinLanguages(
 ): LanguageRow[] {
     const github = snapshot.github.data;
     const totalSeconds = snapshot.wakatime.data?.totalSeconds ?? 0;
+    const membership = github?.repositoryLanguageCounts;
+    const groupCounts = new Map<string, number>();
+    // One pass, not one full repository-set scan per language row.
+    for (const group of membership ?? []) {
+        for (const key of new Set(group.languages.map(canonical))) {
+            groupCounts.set(key, (groupCounts.get(key) ?? 0) + group.repositories);
+        }
+    }
+    const repositoryCount = (key: string) => membership === undefined
+        ? null : groupCounts.get(key) ?? 0;
     const code = new Map<string, { name: string; bytes: number; color: string }>();
     for (const language of github?.languages ?? []) {
         const key = canonical(language.name);
@@ -435,6 +464,7 @@ export function joinLanguages(
             codePercent: knownCode ? (
                 github.totalBytes > 0 ? 100 * bytes / github.totalBytes : 0
             ) : null,
+            repositoryCount: repositoryCount(key),
         });
     }
     for (const [key, language] of code) {
@@ -447,6 +477,7 @@ export function joinLanguages(
                 codeBytes: language.bytes,
                 codePercent: github && github.totalBytes > 0
                     ? 100 * language.bytes / github.totalBytes : 0,
+                repositoryCount: repositoryCount(key),
             });
         }
     }
@@ -489,11 +520,23 @@ function duration(seconds: number): string {
 
 function codeSize(bytes: number | null): string {
     if (bytes === null) return '—';
-    const value = finite(bytes);
+    const value = Number.isFinite(bytes) && bytes >= 0 ? bytes : 0;
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     const index = Math.min(units.length - 1,
         Math.floor(Math.log10(Math.max(1, value)) / 3));
     return `${Number((value / 1000 ** index).toFixed(1))} ${units[index]}`;
+}
+
+/** Full track = this source's largest displayed share, rounded up to 0.1%. */
+export function languageScale(values: Array<number | null>): number | null {
+    const available = values.filter((value): value is number =>
+        value !== null && Number.isFinite(value) && value >= 0);
+    if (!available.length) return null;
+    const maximum = Math.min(100, Math.max(...available));
+    if (maximum === 0) return 0;
+    const units = maximum * 10;
+    return Math.max(0.1,
+        Math.ceil(units - Number.EPSILON * Math.max(1, units)) / 10);
 }
 
 /** Age of the last successful refresh when this static card was generated. */
@@ -577,9 +620,14 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         ? `:root{${cssVariables(lightPalette)}}@media(prefers-color-scheme:dark){:root{${cssVariables(darkPalette)}}}`
         : '';
     const allRows = joinLanguages(snapshot);
-    const rows = displayLanguages(selectLanguages(
+    const selected = selectLanguages(
         allRows, options.sort, options.limit, snapshot.github.data !== null,
-    ), 1);
+        snapshot.github.data?.repositoryLanguageCounts,
+    );
+    const rows = displayLanguages(selected, 1);
+    const codeScale = languageScale(selected.map(row => row.codePercent));
+    const timeScale = snapshot.wakatime.data
+        ? languageScale(selected.map(row => row.timePercent)) : null;
     const activity = options.view === 'activity';
     const empty = rows.length === 0;
     const bodyHeight = activity ? 448 : Math.max(96, rows.length * 39 + 24);
@@ -759,31 +807,50 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             + text(32, 311, 'Existing saved data will appear here whenever a source is temporarily unavailable.', font.small, palette.muted);
     } else {
         body = text(32, 258, 'LANGUAGE', font.small, palette.muted, 'letter-spacing="1.1"')
-            + text(225, 258, 'GITHUB · CODE BYTES', font.small, palette.code, 'letter-spacing="1"')
+            + '<g data-language-scale="code" data-scale-percent="'
+            + (codeScale ?? '') + '">'
+            + text(225, 258, 'GITHUB · CODE BYTES · SCALE '
+                + (codeScale === null ? '—' : `${codeScale.toFixed(1)}%`),
+            font.small, palette.code, 'letter-spacing="0.5"') + '</g>'
             + '<g data-wakatime-column="true"><title>WakaTime · '
             + xml(timeRangeLabel(snapshot)) + '</title>'
-            + text(558, 258, 'WAKATIME · CODE TIME',
-                font.small, palette.time, 'letter-spacing="1"') + '</g>';
+            + '<g data-language-scale="time" data-scale-percent="'
+            + (timeScale ?? '') + '">'
+            + text(558, 258, 'WAKATIME · CODE TIME · SCALE '
+                + (timeScale === null ? '—' : `${timeScale.toFixed(1)}%`),
+            font.small, palette.time, 'letter-spacing="0.5"') + '</g></g>';
         body += rows.map((row, index) => {
             const y = 289 + index * 39;
             const name = row.name.length > 23 ? row.name.slice(0, 22) + '…' : row.name;
-            const timeWidth = Math.min(100, row.timePercent) * 2.10;
-            const codeWidth = Math.min(100, row.codePercent ?? 0) * 2.49;
-            return `<g><title>${xml(row.name)}: WakaTime ${row.timePercent.toFixed(2)}%; `
+            // Use unrounded source shares for geometry; labels still sum to100.
+            const timeWidth = timeScale
+                ? Math.min(1, selected[index].timePercent / timeScale) * 210 : 0;
+            const codeWidth = codeScale
+                ? Math.min(1, (selected[index].codePercent ?? 0) / codeScale) * 249 : 0;
+            const repos = row.repositoryCount;
+            const repoLabel = repos === null || repos === undefined ? '— repos'
+                : `${number(repos)} ${repos === 1 ? 'repo' : 'repos'}`;
+            return `<g data-language-row="${xml(row.name)}"><title>`
+                + `${xml(row.name)}: ${xml(repoLabel)}; `
+                + `WakaTime ${row.timePercent.toFixed(2)}%; `
                 + `GitHub ${row.codePercent === null ? 'not comparable' : row.codePercent.toFixed(2) + '%'}</title>`
                 + `<svg data-language-icon="${xml(row.name)}" x="31" y="${y - 11}" `
                 + `width="26" height="26" viewBox="0 0 24 24" aria-hidden="true" `
                 + `fill="${row.color}"><path fill-rule="${row.name === 'SQL' ? 'evenodd' : 'nonzero'}" `
                 + `d="${xml(languageIcon(row.name, LANGUAGE_ICONS))}"/></svg>`
                 + text(64, y, name, font.medium, palette.fg, 'font-weight="500"')
-                + text(64, y + 14, `${codeSize(row.codeBytes)} · `
-                    + (waka ? duration(row.seconds) : '—'), font.small, palette.muted)
+                + text(64, y + 14, repoLabel, font.small, palette.muted,
+                    'data-repository-count="true"')
                 + `<rect x="225" y="${y - 10}" width="249" height="7" rx="3.5" fill="${palette.track}"/>`
-                + `<rect x="225" y="${y - 10}" width="${codeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.code}"/>`
+                + `<rect data-code-bar="true" x="225" y="${y - 10}" width="${codeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.code}"/>`
                 + text(523, y, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, font.small, palette.code, 'text-anchor="end"')
+                + text(225, y + 14, codeSize(row.codeBytes), font.small,
+                    palette.muted, 'data-code-value="true"')
                 + `<rect x="558" y="${y - 10}" width="210" height="7" rx="3.5" fill="${palette.track}"/>`
-                + `<rect x="558" y="${y - 10}" width="${timeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.time}"/>`
+                + `<rect data-time-bar="true" x="558" y="${y - 10}" width="${timeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.time}"/>`
                 + text(841, y, waka ? `${row.timePercent.toFixed(1)}%` : '—', font.small, palette.time, 'text-anchor="end"')
+                + text(558, y + 14, waka ? duration(row.seconds) : '—',
+                    font.small, palette.muted, 'data-time-value="true"')
                 + '</g>';
         }).join('');
     }
@@ -794,6 +861,10 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `viewBox="0 0 880 ${height}" role="img" aria-labelledby="title desc">`
         + `<title id="title">${xml(title)}</title>`
         + '<desc id="desc">WakaTime time shares and GitHub repository language byte shares have separate denominators. '
+        + 'Each column independently scales its largest displayed share to a full track. '
+        + 'Scale labels state the true percentage represented by a full track. '
+        + 'Repository counts use the headline repository scope and deduplicate merged languages; '
+        + 'a repository may appear in several groups. A dash means a saved snapshot lacks counts. '
         + xml(`${sourceLine('GitHub', snapshot.github)}. ${sourceLine('WakaTime', snapshot.wakatime)}.`)
         + xml(` WakaTime ${RANGE_LABELS[snapshot.range].toLowerCase()}${rangeEnd}${through}. `
             + 'Time share and code share have separate denominators. '
@@ -949,8 +1020,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <img id="card" alt="Unified WakaTime and GitHub profile statistics" hidden></div>
 <p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures current repository language bytes, not personally authored lines.</p>
 <details id="language-details"><summary>Language breakdown <small id="language-count">Waiting for data</small></summary>
-<div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating GitHub and WakaTime ranks, starting with GitHub, then ordered by GitHub code bytes by default. Others includes every remaining group and unclassified time. Both source totals are fully represented, with separate denominators. Raw values remain in the source JSON. A dash means unavailable data.</p>
-<div class="table-wrap"><table><thead><tr><th>Language</th><th>Code share</th><th>Time</th><th>Time share</th></tr></thead>
+<div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating GitHub and WakaTime ranks, starting with GitHub, then ordered by GitHub code bytes by default. Others includes every remaining group and unclassified time. Byte and time totals are fully represented, with separate denominators. Repo counts use the headline inventory, deduplicate within each group and may overlap across groups. Raw values remain in the source JSON. A dash means unavailable data.</p>
+<div class="table-wrap"><table><thead><tr><th>Language</th><th>Repos</th><th>Code bytes</th><th>Code share</th><th>Time</th><th>Time share</th></tr></thead>
 <tbody id="language-body"></tbody></table></div></div></details>
 <details id="activity-details"><summary>GitHub activity <small id="activity-summary">Waiting for data</small></summary>
 <div class="detail-body"><p class="detail-note" id="activity-source">Waiting for GitHub activity source.</p>
@@ -993,14 +1064,9 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     let snapshot = null;
     let generation = 0;
     const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
-    const aliases = ${JSON.stringify(ALIASES)};
-    const groupNames = ${JSON.stringify(GROUP_NAMES)};
-    const alternateRanks = ${alternateRanks.toString()};
-    const selectLanguages = ${selectLanguages.toString()};
-    const displayLanguages = ${displayLanguages.toString()};
     const languageIcons = ${JSON.stringify(LANGUAGE_ICONS)};
     const languageIcon = ${languageIcon.toString()};
-    const colors = ${JSON.stringify(COLORS)};
+    const codeSize = ${codeSize.toString()};
     const activityMetrics = ${JSON.stringify(ACTIVITY_METRICS)};
     const activityPeriods = ${JSON.stringify(ACTIVITY_PERIODS)};
     const activitySource = () => snapshot.githubActivity || {
@@ -1009,10 +1075,6 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     const count = (value) => Number.isFinite(value) && value >= 0 ? fmt.format(value) : '—';
     const day = (value) => value && !isNaN(Date.parse(value))
         ? new Date(value).toISOString().slice(0, 10) : 'date unavailable';
-    const normalize = (name) => aliases[name.trim().toLowerCase()] || name.trim().toLowerCase();
-    const safeColor = (color, name) => groupNames[normalize(name)] && colors[normalize(name)]
-        ? colors[normalize(name)] : /^#[0-9a-f]{6}$/i.test(color || '')
-        ? color : colors[normalize(name)] || '#9ebcf0';
     const duration = (seconds) => fmt.format(Math.floor(seconds / 3600)) + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
     const percentage = (value) => value === null ? '—' : value.toFixed(2) + '%';
     const date = (value) => value && !isNaN(Date.parse(value)) ? new Date(value).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'No successful snapshot yet';
@@ -1025,36 +1087,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         sort: $('sort').value,
     });
     const tableRows = () => {
-        if (!snapshot) return [];
-        const github = snapshot.github.data;
-        const code = new Map();
-        for (const item of github ? github.languages : []) {
-            const key = normalize(item.name);
-            const old = code.get(key);
-            code.set(key, { name: groupNames[key] || item.name, bytes: item.bytes + (old ? old.bytes : 0), color: item.color });
-        }
-        const rows = new Map();
-        const totalSeconds = snapshot.wakatime.data ? snapshot.wakatime.data.totalSeconds : 0;
-        for (const item of snapshot.wakatime.data ? snapshot.wakatime.data.languages : []) {
-            const key = normalize(item.name);
-            const match = key === 'other' ? null : code.get(key);
-            const previous = rows.get(key);
-            rows.set(key, { name: groupNames[key] || (previous ? previous.name : item.name),
-                seconds: item.seconds + (previous ? previous.seconds : 0),
-                timePercent: (totalSeconds > 0 ? 100 * item.seconds / totalSeconds : 0)
-                    + (previous ? previous.timePercent : 0),
-                codeBytes: github && key !== 'other' ? (match ? match.bytes : 0) : null,
-                codePercent: github && key !== 'other' ? (github.totalBytes ? (match ? match.bytes : 0) / github.totalBytes * 100 : 0) : null,
-                color: safeColor(match ? match.color : null, item.name) });
-        }
-        for (const [key, item] of code) {
-            if (!rows.has(key) && key !== 'other') rows.set(key, { name: item.name, seconds: 0,
-                timePercent: 0, codeBytes: item.bytes, codePercent: github.totalBytes ? item.bytes / github.totalBytes * 100 : 0, color: safeColor(item.color, item.name) });
-        }
-        const values = Array.from(rows.values());
-        return displayLanguages(
-            selectLanguages(values, $('sort').value, 10, github !== null), 2,
-        );
+        return snapshot ? snapshot.languageRows || [] : [];
     };
     function updateTable() {
         const rows = tableRows();
@@ -1073,7 +1106,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
             path.setAttribute('d', languageIcon(row.name, languageIcons));
             icon.append(path);
             name.append(icon, document.createTextNode(row.name)); tr.append(name);
-            for (const value of [percentage(row.codePercent),
+            for (const value of [count(row.repositoryCount), codeSize(row.codeBytes),
+                percentage(row.codePercent),
                 snapshot.wakatime.data ? duration(row.seconds) : '—',
                 snapshot.wakatime.data ? percentage(row.timePercent) : '—']) {
                 const td = document.createElement('td'); td.textContent = value; tr.append(td);
@@ -1208,7 +1242,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         $('loading').replaceChildren(document.createTextNode('Loading your snapshot…'));
         let data;
         try {
-            const response = await fetch('/api/stats?range=' + encodeURIComponent($('range').value));
+            const response = await fetch('/api/stats?' + params());
             if (!response.ok) {
                 throw new Error('HTTP ' + response.status);
             }
@@ -1235,7 +1269,8 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
             console.error('CodeStats builder rendering failed', error);
         }
     }
-    for (const id of controls) $(id).addEventListener('change', () => id === 'range' ? load() : updateCard());
+    for (const id of controls) $(id).addEventListener('change', () =>
+        ['range', 'sort'].includes(id) ? load() : updateCard());
     $('controls').addEventListener('submit', (event) => event.preventDefault());
     $('public-url').addEventListener('input', updateSnippet);
     $('include-details').addEventListener('change', updateSnippet);

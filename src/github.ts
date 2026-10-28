@@ -88,7 +88,7 @@ export async function fetchGitHub(
     }
     const avatar = fetchAvatar(user.avatarUrl, fetcher);
     const result: GitHubData = {
-        collectionVersion: 6,
+        collectionVersion: 7,
         repositoryAffiliations: options.affiliations,
         includeForks: options.includeForks,
         analyzedForks: 0,
@@ -108,12 +108,15 @@ export async function fetchGitHub(
         mergedPullRequests: count(object(profile.merged).issueCount),
         issues: count(object(profile.issues).issueCount),
         languages: [],
+        repositoryLanguageCounts: [],
         totalBytes: 0,
         scope: `Repository content selected by GitHub ownerAffiliations: `
             + `${options.affiliations.join(', ')}; `
             + `${options.includeForks ? 'forks included' : 'forks excluded'}, `
             + 'archived repositories included. All repository/language pages; '
             + 'language share by current bytes, including other authors. '
+            + 'Per-language repository counts use this same selected inventory; '
+            + 'merged languages count each repository once. '
             + (all ? 'Private/internal data is limited to token-visible repositories. '
                 : 'Public repositories only. ')
             + 'Stars: selected repositories owned by this user only, including '
@@ -133,6 +136,12 @@ export async function fetchGitHub(
         throw new UpstreamError('GitHub returned inconsistent pull request counts.');
     }
     const languages = new Map<string, { bytes: number; color: string }>();
+    // Aggregate language co-occurrences without storing repository identities.
+    // This stays internal; the public API exposes only selected row counts.
+    const repositoryLanguageCounts = new Map<string, {
+        languages: string[];
+        repositories: number;
+    }>();
     const repositoryIds = new Set<string>();
     const repositoryCursors = new Set<string>();
     let privateRepositories = 0;
@@ -180,6 +189,7 @@ export async function fetchGitHub(
             const expectedBytes = count(languageConnection.totalSize);
             let repositoryBytes = 0;
             const languageNames = new Set<string>();
+            const usedLanguages: string[] = [];
             const languageCursors = new Set<string>();
             for (;;) {
                 if (count(languageConnection.totalSize) !== expectedBytes
@@ -195,6 +205,9 @@ export async function fetchGitHub(
                     }
                     languageNames.add(name);
                     const bytes = count(item.size);
+                    if (bytes > 0) {
+                        usedLanguages.push(name);
+                    }
                     const color = typeof language.color === 'string'
                         && /^#[\da-f]{6}$/i.test(language.color)
                         ? language.color : '#8b949e';
@@ -224,6 +237,15 @@ export async function fetchGitHub(
             if (repositoryBytes !== expectedBytes) {
                 throw new UpstreamError('GitHub language bytes are incomplete.');
             }
+            // A completed language-empty repository still belongs to the
+            // headline inventory, but contributes to no language's count.
+            usedLanguages.sort();
+            const signature = JSON.stringify(usedLanguages);
+            const previous = repositoryLanguageCounts.get(signature);
+            repositoryLanguageCounts.set(signature, {
+                languages: usedLanguages,
+                repositories: count((previous?.repositories ?? 0) + 1),
+            });
         }
         after = page(connection);
         if (after !== null) {
@@ -244,6 +266,15 @@ export async function fetchGitHub(
         throw new UpstreamError('GitHub repository totals changed during refresh.');
     }
     result.analyzedRepositories = repositoryIds.size;
+    // Sort signatures as well, so this never preserves NAME pagination order.
+    result.repositoryLanguageCounts = [...repositoryLanguageCounts]
+        .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+        .map(([, data]) => data);
+    if (result.repositoryLanguageCounts.reduce(
+        (sum, group) => sum + group.repositories, 0,
+    ) !== result.analyzedRepositories) {
+        throw new UpstreamError('GitHub repository language counts are incomplete.');
+    }
     result.languages = [...languages].map(([name, data]) => ({ name, ...data }))
         .sort((a, b) => b.bytes - a.bytes || a.name.localeCompare(b.name));
     result.totalBytes = result.languages.reduce((sum, item) => sum + item.bytes, 0);

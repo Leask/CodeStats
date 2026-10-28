@@ -41,8 +41,25 @@ Both columns therefore represent the complete collected data, not just a top-N
 subset. Display sorting changes order, not which groups are selected.
 
 GitHub byte shares appear on the left and WakaTime shares on the right. Each
-language subtitle shows its code size in decimal B/KB/MB/GB followed by coding
-hours and minutes. Exact byte and second totals remain in the source JSON.
+language subtitle shows the number of distinct repositories using that language
+group. It uses exactly the headline repository inventory, including configured
+owned, organization and collaborator repositories, private visibility and forks.
+Only positive language bytes count as usage. A repository using both JavaScript
+and TypeScript counts once in JavaScript/TypeScript; the same rule applies to all
+families. Others counts the union of repositories using any remaining language,
+not the headline total minus the named counts. Counts overlap between groups,
+so their sum need not equal the headline. Repositories without detected languages
+remain in the headline but do not count toward a language group.
+
+These counts reuse the existing repository/language pages, with no additional API
+requests or commit traversal. The private cache stores only frequencies of sorted
+language sets, never repository identities or ordering. `/api/stats` omits that
+internal histogram and returns computed `languageRows`. Old last-good snapshots
+remain visible during the upgrade; missing counts show `— repos` until a successful
+refresh, rather than an invented zero.
+
+Code size in decimal B/KB/MB/GB now appears below the GitHub bar; coding hours
+and minutes appear below the WakaTime bar. Exact totals remain in the source JSON.
 
 Related languages are grouped before selection:
 
@@ -68,7 +85,7 @@ or runtimes are identical; Notebook content is included in Python by this
 profile's display policy. WakaTime shares use precise summed seconds divided by
 the original full-source total, avoiding accumulated upstream percentage
 rounding. GitHub shares use bytes divided by the original total bytes. Neither
-column is rescaled to the selected groups. Raw source JSON/cache retains every
+percentage denominator is restricted to the selected groups. Raw source JSON/cache retains every
 original language, value and upstream percentage. The synthetic Others has a
 GitHub remainder share, unlike WakaTime's original unclassified Other alone.
 
@@ -76,12 +93,20 @@ Displayed percentages are balanced using integer tenths (SVG) or hundredths
 (preview table): Others is100% minus the displayed named shares, so each column
 adds to exactly100% at its shown precision. In the rare case that rounding the
 named rows alone exceeds100%, excess units are removed from the most rounded-up
-rows before calculating Others. This only affects percentage display and bar
-widths; exact seconds, bytes, selection and source/cache values are unchanged.
+rows before calculating Others. This only affects displayed percentages;
+exact seconds, bytes, selection and source/cache values are unchanged.
 Missing, empty or incomplete source shares are never filled to100%.
 
-The right SVG column heading is `WAKATIME · CODE TIME`, paired with
-`GITHUB · CODE BYTES` on the left. Its tooltip shows the saved WakaTime span as
+The two bar columns scale independently. Each full track represents that column's
+largest displayed **unrounded** source share (including Others), rounded upward
+to the nearest 0.1 percentage point. For example, `GITHUB · CODE BYTES · SCALE
+35.8%` means the full track represents35.8% of all GitHub bytes: a17.9% language
+occupies half the track. WakaTime has its own scale and denominator. The displayed
+row percentages are the true full-source shares, not the normalized bar lengths.
+Empty sources have scale0%; unavailable sources show a dash.
+
+The right SVG column heading is `WAKATIME · CODE TIME · SCALE …`, paired with
+`GITHUB · CODE BYTES · SCALE …` on the left. Its tooltip shows the saved WakaTime span as
 `Recent 12 years`, `Recent 6 months` or `Recent 7 days`. Years
 and months are rounded to the nearest whole unit. Precise source dates are
 preferred; a published `since` date uses the saved source-success timestamp as

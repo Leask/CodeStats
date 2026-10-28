@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { SnapshotCache } from '../src/cache';
+import { createProfileCache } from '../src/snapshot';
 import { UpstreamError } from '../src/errors';
 import type { Storage } from '../src/cache';
-import type { GitHubActivityData, GitHubData, WakaData } from '../src/types';
+import type {
+    GitHubActivityData, GitHubData, Settings, SourceSnapshot, WakaData,
+} from '../src/types';
 
 class MemoryStorage implements Storage {
     values = new Map<string, unknown>();
@@ -77,6 +80,122 @@ function harness() {
 }
 
 describe('durable last-good snapshots', () => {
+    it('upgrades v6 repository counts in place while serving the old success', async () => {
+        const h = harness();
+        const key = 'github:repositories:v6:public:OWNER:true';
+        const old = { ...github, collectionVersion: 6 as const };
+        const original = new SnapshotCache(h.storage, {
+            ...h.loaders, github: async () => old,
+        }, { ...h.policy, githubKey: key });
+        const before = await original.read('all_time', h.wait);
+        let release!: (value: GitHubData) => void;
+        let calls = 0;
+        const pending = new Promise<GitHubData>(resolve => { release = resolve; });
+        const upgraded = { ...old, collectionVersion: 7 as const,
+            repositoryLanguageCounts: [
+                { languages: ['TypeScript'], repositories: 2 },
+            ] };
+        const migrated = new SnapshotCache(h.storage, {
+            ...h.loaders, github: () => { calls++; return pending; },
+        }, { ...h.policy, githubKey: key, githubCollectionVersion: 7 });
+
+        const refreshing = await migrated.read('all_time', h.wait);
+        expect(refreshing.github.status).toBe('stale');
+        expect(refreshing.github.data).toEqual(old);
+        expect(refreshing.github.lastSuccessAt).toBe(before.github.lastSuccessAt);
+        expect(refreshing.github.data?.repositoryLanguageCounts).toBeUndefined();
+        expect(calls).toBe(1);
+        release(upgraded);
+        await h.flush();
+        const after = await migrated.read('all_time', h.wait);
+        expect(after.github.status).toBe('fresh');
+        expect(after.github.data).toEqual(upgraded);
+        expect(after.wakatime).toEqual(before.wakatime);
+        expect([...h.storage.values.keys()].filter(value =>
+            value.startsWith('github:repositories:'))).toEqual([key]);
+        expect(calls).toBe(1);
+    });
+
+    it('keeps v6 counts unknown through v7 failure, cooldown and restart', async () => {
+        const h = harness();
+        const key = 'github:repositories:v6:public:OWNER:true';
+        const old = { ...github, collectionVersion: 6 as const };
+        const original = new SnapshotCache(h.storage, {
+            ...h.loaders, github: async () => old,
+        }, { ...h.policy, githubKey: key });
+        const before = await original.read('all_time', h.wait);
+        let calls = 0;
+        const loaders = { ...h.loaders, github: async () => {
+            calls++;
+            throw new UpstreamError('GitHub rate limited.', 3600);
+        } };
+        const policy = {
+            ...h.policy, githubKey: key, githubCollectionVersion: 7,
+        };
+        const migrated = new SnapshotCache(h.storage, loaders, policy);
+        await migrated.read('all_time', h.wait);
+        await h.flush();
+        const restarted = new SnapshotCache(h.storage, loaders, policy);
+        const failed = await restarted.read('all_time', h.wait);
+        expect(failed.github.status).toBe('stale');
+        expect(failed.github.data).toEqual(old);
+        expect(failed.github.data?.repositoryLanguageCounts).toBeUndefined();
+        expect(failed.github.lastSuccessAt).toBe(before.github.lastSuccessAt);
+        expect(failed.github.lastError).toContain('rate limited');
+        expect(Date.parse(failed.github.retryAt!))
+            .toBe(Date.parse(failed.generatedAt) + 3600 * 1000);
+        h.advance(3599);
+        await restarted.read('all_time', h.wait);
+        await h.flush();
+        expect(calls).toBe(1);
+        h.advance(1);
+        await restarted.read('all_time', h.wait);
+        await h.flush();
+        expect(calls).toBe(2);
+        expect((await h.storage.get<SourceSnapshot<GitHubData>>(key))?.data)
+            .toEqual(old);
+    });
+
+    it('profile cache reuses its existing v6 key on a count-upgrade failure', async () => {
+        const storage = new MemoryStorage();
+        const now = new Date().toISOString();
+        const saved = <T>(data: T): SourceSnapshot<T> => ({
+            data, lastSuccessAt: now, lastAttemptAt: now, lastError: null,
+            retryAt: null, status: 'fresh',
+        });
+        const key = 'github:repositories:v6:public:'
+            + 'COLLABORATOR,ORGANIZATION_MEMBER,OWNER:true';
+        const old = { ...github, collectionVersion: 6 as const };
+        await storage.put(key, saved(old));
+        await storage.put('wakatime:all_time', saved(waka));
+        await storage.put('github:activity:public:v3:true', saved({
+            ...activity, collectionVersion: 3,
+        }));
+        const settings: Settings = {
+            GITHUB_USERNAME: 'test', WAKATIME_USERNAME: 'test',
+            DEFAULT_RANGE: 'all_time', FRESH_SECONDS: '21600',
+            RETRY_SECONDS: '900',
+        };
+        const pending: Promise<unknown>[] = [];
+        let calls = 0;
+        const engine = createProfileCache(storage, settings, async () => {
+            calls++;
+            throw new Error('Unexpected upstream request.');
+        });
+        const before = await engine.read('all_time', promise => pending.push(promise));
+        expect(before.github.data).toEqual(old);
+        expect(before.github.status).toBe('stale');
+        await Promise.all(pending.splice(0));
+        const after = await engine.read('all_time', promise => pending.push(promise));
+        expect(after.github.data).toEqual(old);
+        expect(after.github.lastSuccessAt).toBe(now);
+        expect(after.github.lastError).toContain('server-side GITHUB_TOKEN');
+        expect(after.wakatime.data).toEqual(waka);
+        expect(calls).toBe(0);
+        expect([...storage.values.keys()].filter(value =>
+            value.startsWith('github:repositories:'))).toEqual([key]);
+    });
+
     it('refreshes an older collection without discarding its saved data', async () => {
         const h = harness();
         const original = new SnapshotCache(h.storage, {

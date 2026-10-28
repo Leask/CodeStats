@@ -2,7 +2,7 @@ export const RANGES = ['all_time', 'last_7_days', 'last_30_days'] as const;
 export type Range = typeof RANGES[number];
 
 export interface GitHubData {
-    collectionVersion?: 4 | 5 | 6;
+    collectionVersion?: 4 | 5 | 6 | 7;
     repositoryAffiliations?: string[];
     includeForks?: boolean;
     analyzedForks?: number;
@@ -23,8 +23,16 @@ export interface GitHubData {
     mergedPullRequests: number;
     issues: number;
     languages: Array<{ name: string; bytes: number; color: string }>;
+    /** Internal aggregate membership counts; omitted from public JSON. */
+    repositoryLanguageCounts?: RepositoryLanguageCount[];
     totalBytes: number;
     scope: string;
+}
+
+/** Frequencies of language sets, without repository names or identities. */
+export interface RepositoryLanguageCount {
+    languages: string[];
+    repositories: number;
 }
 
 /** Aggregate personal activity; never expose private repository identities. */
@@ -90,6 +98,8 @@ export interface LanguageRow {
     timePercent: number;
     codeBytes: number | null;
     codePercent: number | null;
+    /** Distinct repositories using any language in this merged group. */
+    repositoryCount?: number | null;
 }
 
 export interface CardOptions {

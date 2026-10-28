@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     displayLanguages, joinLanguages, renderCard, renderPage, selectLanguages,
-    timeRangeLabel, refreshAge,
+    timeRangeLabel, refreshAge, languageScale,
 } from '../src/render';
 import type { CardOptions, LanguageRow, StatsSnapshot } from '../src/types';
 import { LANGUAGE_ICONS, languageIcon } from '../src/language-icons';
@@ -89,6 +89,80 @@ function rankedSnapshot(time: string[], code: string[]): StatsSnapshot {
 }
 
 describe('language comparison', () => {
+    it('counts merged languages once per repo and unions the remaining groups', () => {
+        const data = snapshot();
+        data.github.data!.repositoryLanguageCounts = [
+            { languages: ['JavaScript', 'TypeScript', 'Python'], repositories: 2 },
+            { languages: ['C', 'C++', 'Makefile'], repositories: 3 },
+            { languages: ['Python', 'Shell'], repositories: 1 },
+            { languages: [], repositories: 4 },
+        ];
+        data.github.data!.languages.push(
+            { name: 'JavaScript', bytes: 100, color: '#f1df6a' },
+            { name: 'Python', bytes: 50, color: '#89b5ed' },
+        );
+        data.github.data!.totalBytes = 1150;
+        data.github.data!.analyzedRepositories = 10;
+        data.github.data!.publicRepositories = 10;
+        const rows = joinLanguages(data);
+        const counts = data.github.data!.repositoryLanguageCounts;
+        expect(rows.find(row => row.name === 'JavaScript/TypeScript')
+            ?.repositoryCount).toBe(2);
+        expect(rows.find(row => row.name === 'C/C++')?.repositoryCount).toBe(3);
+        expect(rows.find(row => row.name === 'Python')?.repositoryCount).toBe(3);
+        // One named JS/TS group; the tail includes Python/C/Shell, with overlap.
+        const selected = selectLanguages(rows, 'code', 2, true, counts);
+        expect(selected.map(row => row.name)).toEqual(['JavaScript/TypeScript', 'Others']);
+        expect(selected[1].repositoryCount).toBe(6);
+        // Empty-language repos remain in the headline but in no language group.
+        expect(selectLanguages(rows, 'code', 1, true, counts)[0]
+            .repositoryCount).toBe(6);
+        expect(selected[0].repositoryCount! + selected[1].repositoryCount!)
+            .toBeGreaterThan(6);
+    });
+
+    it('keeps counts unknown on saved data and distinguishes a known zero', () => {
+        const data = snapshot();
+        const unknown = joinLanguages(data);
+        expect(unknown.every(row => row.repositoryCount === null)).toBe(true);
+        expect(selectLanguages(unknown, 'time', 1)[0].repositoryCount).toBeNull();
+        data.github.data!.repositoryLanguageCounts = [];
+        expect(joinLanguages(data).every(row => row.repositoryCount === 0)).toBe(true);
+    });
+
+    it('scales each source independently without replacing source percentages', () => {
+        const data = snapshot();
+        data.wakatime.data!.languages[0].seconds = 4000;
+        data.wakatime.data!.languages[1].seconds = 4000;
+        expect(languageScale([35.76, 10, 0])).toBe(35.8);
+        expect(languageScale([42.2, 42.20000000000001])).toBe(42.2);
+        expect(languageScale([null, null])).toBeNull();
+        expect(languageScale([0, 0])).toBe(0);
+        const svg = renderCard(data, options);
+        expect(svg).toContain('data-language-scale="code" data-scale-percent="50"');
+        expect(svg).toContain('data-language-scale="time" data-scale-percent="40"');
+        const row = (name: string) => svg.split(`data-language-row="${name}"`)[1]
+            .split('</g>')[0];
+        const width = (value: string, kind: string) => Number(
+            value.match(new RegExp(`data-${kind}-bar="true"[^>]*width="([\\d.]+)"`))![1],
+        );
+        expect(width(row('JavaScript/TypeScript'), 'code')).toBe(249);
+        expect(width(row('Shell'), 'code')).toBeCloseTo(249 * 20 / 50, 2);
+        expect(width(row('Shell'), 'time')).toBe(210);
+        expect(width(row('JavaScript/TypeScript'), 'time')).toBe(105);
+        expect(row('JavaScript/TypeScript')).toContain('>50.0%</text>');
+        expect(row('JavaScript/TypeScript')).toContain('>20.0%</text>');
+        expect(row('JavaScript/TypeScript'))
+            .toMatch(/x="225" y="\d+"[^>]*data-code-value="true">500 B/);
+        expect(row('JavaScript/TypeScript'))
+            .toMatch(/x="558" y="\d+"[^>]*data-time-value="true">0h 33m/);
+        expect(row('JavaScript/TypeScript'))
+            .toMatch(/x="64" y="\d+"[^>]*data-repository-count="true">— repos/);
+        data.wakatime.data = null;
+        const missing = renderCard(data, options);
+        expect(missing).toContain('data-language-scale="time" data-scale-percent=""');
+        expect(missing).toContain('WAKATIME · CODE TIME · SCALE —');
+    });
     it('sets displayed Others to100 minus displayed named shares at each precision', () => {
         const rows: LanguageRow[] = [33.35, 33.35, 33.3].map((share, index) => ({
             name: ['A', 'B', 'Others'][index], color: '#3178c6',
@@ -291,7 +365,7 @@ describe('language comparison', () => {
         expect(joinLanguages(data).slice(0, 10).map(row => row.name))
             .toEqual(expected);
         const svg = renderCard(data, { ...options, sort: 'alternating', limit: 10 });
-        expect([...svg.matchAll(/<g><title>([^:]+): WakaTime/g)]
+        expect([...svg.matchAll(/<g data-language-row="([^"]+)"/g)]
             .map(match => match[1])).toEqual([...expected.slice(0, 9), 'Others']);
     });
 
@@ -441,8 +515,8 @@ describe('safe README SVG', () => {
         expect(timeRangeLabel(data)).toBe(expected);
         const svg = renderCard(data, options);
         expect(svg).toContain(`<title>WakaTime · ${expected}</title>`);
-        expect(svg).toContain('>WAKATIME · CODE TIME</text>');
-        expect(svg).toContain('>GITHUB · CODE BYTES</text>');
+        expect(svg).toContain('>WAKATIME · CODE TIME · SCALE ');
+        expect(svg).toContain('>GITHUB · CODE BYTES · SCALE ');
         expect(svg).not.toContain('WAKATIME · ALL TIME');
     });
 
@@ -507,7 +581,7 @@ describe('safe README SVG', () => {
         expect(svg).not.toContain('refresh unavailable');
     });
 
-    it('supports the endpoint maximum of100 rows and keeps language duration below its label', () => {
+    it('supports100 rows with repo counts below names and measures below their bars', () => {
         const data = snapshot();
         data.wakatime.data!.languages = Array.from({ length: 103 }, (_, i) => ({
             name: `Language ${String(i).padStart(3, '0')}`,
@@ -516,9 +590,9 @@ describe('safe README SVG', () => {
         }));
         data.github.data!.languages = [];
         const svg = renderCard(data, { ...options, limit: 100 });
-        expect(svg.match(/<g><title>/g)).toHaveLength(100);
+        expect(svg.match(/data-language-row=/g)).toHaveLength(100);
         expect(svg).not.toContain('full source totals');
-        expect(svg).toContain('Others: WakaTime');
+        expect(svg).toContain('Others: — repos; WakaTime');
         expect(svg).toContain('x="64" y="303" font-size="11"');
         expect(svg).not.toContain('x="207" y="289"');
     });
@@ -606,7 +680,7 @@ describe('GitHub personal activity', () => {
             const existing = renderCard(data, { ...options, view });
             expect(existing).toContain('GitHub activity · unavailable');
             expect(existing).toContain('<title>WakaTime · Recent 7 years</title>');
-            expect(existing).toContain('>WAKATIME · CODE TIME</text>');
+            expect(existing).toContain('>WAKATIME · CODE TIME · SCALE ');
         }
     });
 

@@ -20,6 +20,7 @@ interface Policy {
     now?: () => number;
     githubKey?: string;
     githubActivityKey?: string;
+    githubCollectionVersion?: number;
     githubActivityCollectionVersion?: number;
     retryConfigurationErrors?: string[];
 }
@@ -163,7 +164,9 @@ export class SnapshotCache {
     async read(range: Range, waitUntil: WaitUntil): Promise<StatsSnapshot> {
         const [github, wakatime, githubActivity] = await Promise.all([
             this.source(this.policy.githubKey ?? 'github',
-                this.loaders.github, waitUntil),
+                this.loaders.github, waitUntil,
+                data => this.policy.githubCollectionVersion === undefined
+                    || data.collectionVersion === this.policy.githubCollectionVersion),
             this.source('wakatime:' + range,
                 () => this.loaders.wakatime(range), waitUntil),
             this.loaders.githubActivity

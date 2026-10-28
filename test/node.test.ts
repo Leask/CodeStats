@@ -239,7 +239,7 @@ describe('Node runtime and persistent snapshots', () => {
         storage.close();
         const node = service(path, upstream().fetcher);
         const value = await stats(await node.listen(0));
-        expect(value.github.data).toMatchObject({ collectionVersion: 6, stars: 8 });
+        expect(value.github.data).toMatchObject({ collectionVersion: 7, stars: 8 });
         expect(await node.storage.get(legacyKey)).toEqual(legacy);
     });
 

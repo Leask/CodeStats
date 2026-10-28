@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Independently scale GitHub/WakaTime bars to their largest displayed share;
+  state each full-track percentage in its heading and preserve true shares.
+- Count repositories per merged language and Others using deduplicated unions
+  over the headline inventory, without extra upstream requests. Keep membership
+  aggregates private and expose only computed rows. Preserve old cached data
+  during the collection upgrade, with unknown counts shown as a dash.
+- Put repo counts below language names and bytes/time below their own bars;
+  share server-computed rows with the builder and expanded detail table.
 - Preserve dashboard Variables on deploy, retry a formerly missing GitHub token
   immediately once configured, and group Makefile with C/C++ and Awk with Shell.
 - Serve the transparent README SVG directly at `/` and `/card.svg`; move the

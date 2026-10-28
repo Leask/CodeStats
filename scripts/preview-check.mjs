@@ -14,7 +14,7 @@ const context = await browser.newContext({
     permissions: ['clipboard-read', 'clipboard-write'],
 });
 const page = await context.newPage();
-// A cold full-account aggregate can take up to45s; cached visits are immediate.
+// A cold full-account aggregate can take up to 45s; cached visits are immediate.
 page.setDefaultTimeout(60_000);
 page.setDefaultNavigationTimeout(60_000);
 const errors = [];
@@ -22,16 +22,43 @@ const requests = [];
 page.on('pageerror', error => errors.push(error.message));
 page.on('request', request => requests.push(request.url()));
 const checks = {};
+
+async function waitForSelectedCard() {
+    const selected = await page.locator('#controls').evaluate(form =>
+        Object.fromEntries(['range', 'theme', 'header', 'view', 'sort']
+            .map(id => [id, form.querySelector('#' + id).value])));
+    await page.waitForFunction(selected => {
+        const image = document.querySelector('#card');
+        if (!document.querySelector('#loading').hidden || !image || image.hidden
+            || !image.complete || image.naturalWidth === 0) return false;
+        const url = new URL(image.getAttribute('src'), location.href);
+        return Object.entries(selected).every(([key, value]) =>
+            url.searchParams.get(key) === value);
+    }, selected);
+    await page.locator('#card').evaluate(image => image.decode());
+}
+
+async function selectControl(id, value) {
+    await page.locator('#' + id).selectOption(value);
+    await waitForSelectedCard();
+}
+
 try {
     await page.goto(base + '/build', { waitUntil: 'networkidle' });
-    await page.waitForFunction(() => {
-        const image = document.querySelector('#card');
-        return image && !image.hidden && image.complete && image.naturalWidth > 0;
-    });
+    await waitForSelectedCard();
     checks.liveSources = await page.locator('#github-status').textContent() === 'fresh'
-        && await page.locator('#githubActivity-status').textContent() === 'fresh'
         && await page.locator('#wakatime-status').textContent() === 'fresh';
     const expected = await (await context.request.get(base + '/api/stats')).json();
+    checks.currentRepositoryCollection = expected.github.status === 'fresh'
+        && expected.github.data?.collectionVersion >= 7
+        && expected.wakatime.status === 'fresh';
+    checks.privateMembershipNotPublished = !JSON.stringify(expected)
+        .includes('repositoryLanguageCounts');
+    const activity = expected.githubActivity;
+    checks.activityStateHonest = await page.locator('#githubActivity-status')
+        .textContent() === (activity?.status ?? 'unavailable')
+        && await page.locator('#githubActivity-error').textContent()
+            === (activity?.lastError ?? '');
     const count = await page.locator('#language-body tr').count();
     const names = await page.locator('#language-body tr td:first-child')
         .allTextContents();
@@ -44,6 +71,15 @@ try {
         && !names.includes('HTML') && !names.includes('CSS');
     const displayed = await page.locator('#language-body tr').evaluateAll(rows =>
         rows.map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent)));
+    checks.sixColumnServerRows = displayed.every(row => row.length === 6)
+        && JSON.stringify(names) === JSON.stringify(expected.languageRows
+            .map(row => row.name));
+    checks.repositoryCounts = displayed.every((row, index) => {
+        const count = expected.languageRows[index]?.repositoryCount;
+        return Number.isSafeInteger(count) && count >= 0
+            && count <= expected.github.data.analyzedRepositories
+            && row[1] === count.toLocaleString('en-US');
+    });
     const js = displayed.find(row => row[0] === 'JavaScript/TypeScript');
     const jsNames = new Set(['javascript', 'typescript', 'js', 'ts', 'jsx', 'tsx',
         'javascript react', 'typescript react']);
@@ -51,16 +87,16 @@ try {
         .filter(row => jsNames.has(row.name.toLowerCase()))
         .reduce((sum, row) => sum + row.seconds, 0);
     const hours = Math.floor(seconds / 3600).toLocaleString('en-US');
-    checks.groupedTimeSum = js[2] === hours + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
+    checks.groupedTimeSum = js[4] === hours + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
     const c = displayed.find(row => row[0] === 'C/C++');
     const bytes = expected.github.data.languages
         .filter(row => ['c', 'c++', 'cpp', 'makefile'].includes(row.name.toLowerCase()))
         .reduce((sum, row) => sum + row.bytes, 0);
-    checks.groupedCodeShare = c[1]
+    checks.groupedCodeShare = c[3]
         === (100 * bytes / expected.github.data.totalBytes).toFixed(2) + '%';
     checks.codeDefault = await page.locator('#sort').inputValue() === 'code';
-    const timeShares = displayed.map(row => parseFloat(row[3]));
-    const codeShares = displayed.map(row => parseFloat(row[1]));
+    const timeShares = displayed.map(row => parseFloat(row[5]));
+    const codeShares = displayed.map(row => parseFloat(row[3]));
     const hundred = (values, scale) => values.reduce((sum, value) =>
         sum + Math.round(value * scale), 0) === 100 * scale;
     checks.completeTimeShare = hundred(timeShares, 100);
@@ -72,25 +108,26 @@ try {
         && expected.github.data.scope.includes('organization/collaborator stars excluded')
         && card.includes('>' + expected.github.data.stars.toLocaleString('en-US')
             + '</text>');
-    checks.sourceColumnHeaders = card.includes('>WAKATIME · CODE TIME</text>')
-        && card.includes('>GITHUB · CODE BYTES</text>');
+    checks.sourceColumnHeaders = card.includes('>WAKATIME · CODE TIME · SCALE ')
+        && card.includes('>GITHUB · CODE BYTES · SCALE ');
     checks.compactFooter = card.includes('data-refresh-times="true"')
         && card.includes('data-project-credit="true" href="https://github.com/Leask/CodeStats"')
         && card.includes('>Power by github.com/Leask/<tspan')
         && card.includes('font-weight="650">CodeStats</tspan>')
         && !card.includes('>CODESTATS</text>') && !card.includes('FRESH SNAPSHOT')
         && !card.includes('groups · full source totals') && !card.includes('CODESTATS/01');
-    const svgNames = [...card.matchAll(/<g><title>([^:]+): WakaTime/g)]
+    const svgNames = [...card.matchAll(/<g data-language-row="([^"]+)">/g)]
         .map(match => match[1]);
     const cardShares = (x) => [...card.matchAll(new RegExp(
         '<text x="' + x + '"[^>]*>([0-9.]+)%</text>', 'g',
     ))].map(match => Number(match[1]));
     checks.cardDisplayedShares = hundred(cardShares(523), 10)
         && hundred(cardShares(841), 10);
-    checks.githubColumnFirst = /<text x="225" y="258"[^>]*>GITHUB · CODE BYTES<\/text>/.test(card)
-        && /<text x="558" y="258"[^>]*>WAKATIME · CODE TIME<\/text>/.test(card)
+    checks.githubColumnFirst = /<text x="225" y="258"[^>]*>GITHUB · CODE BYTES · SCALE /.test(card)
+        && /<text x="558" y="258"[^>]*>WAKATIME · CODE TIME · SCALE /.test(card)
         && JSON.stringify(await page.locator('#language-details th').allTextContents())
-            === JSON.stringify(['Language', 'Code share', 'Time', 'Time share']);
+            === JSON.stringify(['Language', 'Repos', 'Code bytes', 'Code share',
+                'Time', 'Time share']);
     checks.defaultTenRows = svgNames.length === Math.min(10, names.length);
     checks.cardAndTableOrderMatch = JSON.stringify(svgNames)
         === JSON.stringify(names.slice(0, 10));
@@ -99,8 +136,7 @@ try {
         .evaluateAll(paths => paths.map(path => path.getAttribute('d')));
     checks.inlineLanguageLogos = svgIcons.length === 10 && tableIcons.length === 10
         && svgIcons.every((match, index) => match[2] === tableIcons[index]);
-    await page.locator('#header').selectOption('false');
-    await page.locator('#card').evaluate(image => image.decode());
+    await selectControl('header', 'false');
     const withoutHeader = await (await context.request.get(
         base + await page.locator('#card').getAttribute('src'),
     )).text();
@@ -108,20 +144,26 @@ try {
         && Number(card.match(/height="(\d+)"/)[1])
             - Number(withoutHeader.match(/height="(\d+)"/)[1]) === 100
         && (await page.locator('#snippet').textContent()).includes('?header=false)');
-    await page.locator('#header').selectOption('true');
-    await page.locator('#card').evaluate(image => image.decode());
+    await selectControl('header', 'true');
     checks.defaultHeaderHasNoParameter = !(await page.locator('#snippet').textContent())
         .includes('header=');
     await page.screenshot({ path: 'artifacts/preview-desktop.png', fullPage: true });
     await page.locator('#language-details summary').click();
     checks.expansion = await page.locator('#language-details').getAttribute('open') !== null;
-    await page.locator('#sort').selectOption('time');
-    await page.locator('#card').evaluate(image => image.decode());
+    await selectControl('sort', 'time');
     checks.sort = (await page.locator('#card').getAttribute('src')).includes('sort=time');
+    const timeRows = await (await context.request.get(
+        base + '/api/stats?sort=time',
+    )).json();
+    const sortedRows = await page.locator('#language-body tr').evaluateAll(rows =>
+        rows.map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent)));
+    checks.sortedServerRows = JSON.stringify(sortedRows.map(row => [row[0], row[1]]))
+        === JSON.stringify(timeRows.languageRows.map(row => [
+            row.name, row.repositoryCount.toLocaleString('en-US'),
+        ]));
     checks.othersAlwaysLast = await page.locator('#language-body tr:last-child td:first-child')
         .textContent() === 'Others';
-    await page.locator('#theme').selectOption('light');
-    await page.locator('#card').evaluate(image => image.decode());
+    await selectControl('theme', 'light');
     checks.theme = (await page.locator('#card').getAttribute('src')).includes('theme=light');
     if (!await page.locator('#readme-details').evaluate(node => node.open)) {
         await page.locator('#readme-details summary').click();
@@ -140,12 +182,12 @@ try {
     checks.activityExpansion = await page.locator('#activity-details')
         .getAttribute('open') !== null;
     checks.annualHistory = await page.locator('#contribution-years tr').count()
-        === expected.githubActivity.data.contributionsByYear.length;
+        === Math.max(1, activity?.data?.contributionsByYear.length ?? 0);
     checks.activityMetrics = await page.locator('#activity-body tr').count() === 14;
     checks.privateScope = (await page.locator('#activity-scope').textContent())
-        .includes('token-visible');
-    await page.locator('#view').selectOption('activity');
-    await page.locator('#card').evaluate(image => image.decode());
+        .includes(activity?.data ? activity.data.visibility === 'all'
+            ? 'Public + private' : 'Public aggregates' : 'unavailable');
+    await selectControl('view', 'activity');
     checks.activityView = (await page.locator('#card').getAttribute('src'))
         .includes('view=activity');
     await page.screenshot({ path: 'artifacts/preview-activity-desktop.png', fullPage: true });
@@ -154,9 +196,8 @@ try {
         document.documentElement.scrollWidth <= innerWidth);
     await page.screenshot({ path: 'artifacts/preview-activity-mobile.png', fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1100 });
-    await page.locator('#view').selectOption('overview');
-    await page.locator('#card').evaluate(image => image.decode());
-    await page.locator('#range').selectOption('last_7_days');
+    await selectControl('view', 'overview');
+    await selectControl('range', 'last_7_days');
     const ranged = await (await context.request.get(
         base + '/api/stats?range=last_7_days',
     )).json();
@@ -168,11 +209,11 @@ try {
             ? ranged.wakatime.data.range === 'last_7_days'
             : (await page.locator('#range-note').textContent())
                 .includes('no other range is substituted'));
-    await page.locator('#range').selectOption('all_time');
-    await page.waitForFunction(() =>
-        document.querySelector('#wakatime-status').textContent === 'fresh');
-    await page.locator('#sort').selectOption('time');
-    await page.locator('#theme').selectOption('dark');
+    await selectControl('range', 'all_time');
+    checks.allTimeRestored = await page.locator('#wakatime-status')
+        .textContent() === 'fresh';
+    await selectControl('sort', 'time');
+    await selectControl('theme', 'dark');
     await page.setViewportSize({ width: 390, height: 844 });
     checks.mobileNoOverflow = await page.evaluate(() =>
         document.documentElement.scrollWidth <= innerWidth);
@@ -186,6 +227,10 @@ try {
     checks.avatarRankRing = true;
     checks.languageSubtitles = true;
     checks.threeFontSizes = true;
+    checks.maxNormalizedBars = true;
+    checks.trueSourcePercentLabels = true;
+    checks.scaleHeaders = true;
+    checks.svgRepositoryCounts = true;
     const clipping = [];
     for (const view of ['overview', 'activity']) {
         for (const theme of ['dark', 'light', 'transparent']) {
@@ -211,7 +256,7 @@ try {
                     && [...document.querySelectorAll('[data-language-icon]')]
                         .every(icon => size(icon.parentNode.querySelector('text')) === 13);
             });
-            const rank = profileRank(expected.github.data, expected.githubActivity.data);
+            const rank = profileRank(expected.github.data, activity?.data ?? null);
             checks.avatarRankRing &&= await svgPage.evaluate(rank => {
                 const rim = document.querySelector('[data-avatar-rank-rim]');
                 const arc = document.querySelector('[data-avatar-rank-progress]');
@@ -274,16 +319,78 @@ try {
                 });
             });
             if (view === 'overview') {
-                checks.languageSubtitles &&= await svgPage.evaluate(() => {
-                    const icons = [...document.querySelectorAll('[data-language-icon]')];
-                    return icons.length > 0 && icons.every(icon => {
-                        const texts = icon.parentNode.querySelectorAll(':scope > text');
-                        const subtitle = texts[1];
-                        return /^(?:[\d.]+ (?:B|KB|MB|GB|TB)|—) · \d[\d,]*h \d+m$/
-                            .test(subtitle.textContent)
-                            && subtitle.getBBox().x + subtitle.getBBox().width < 225;
-                    });
-                });
+                const chart = await svgPage.evaluate(expected => {
+                    const groups = [...document.querySelectorAll('[data-language-row]')];
+                    const rows = new Map(expected.languageRows.map(row => [row.name, row]));
+                    const sources = [
+                        { key: 'code', field: 'codeBytes', total: expected.github.data.totalBytes },
+                        { key: 'time', field: 'seconds', total: expected.wakatime.data.totalSeconds },
+                    ];
+                    const result = { geometry: true, labels: true, headers: true,
+                        repositories: true, metadata: true };
+                    for (const source of sources) {
+                        const header = document.querySelector(
+                            '[data-language-scale="' + source.key + '"]');
+                        const scale = Number(header.getAttribute('data-scale-percent'));
+                        const prefix = source.key === 'code'
+                            ? 'GITHUB · CODE BYTES · SCALE '
+                            : 'WAKATIME · CODE TIME · SCALE ';
+                        result.headers &&= header.textContent === prefix + scale.toFixed(1) + '%';
+                        const ratios = [];
+                        const shares = [];
+                        for (const group of groups) {
+                            const row = rows.get(group.dataset.languageRow);
+                            const raw = source.total > 0 ? 100 * row[source.field] / source.total : 0;
+                            const bar = group.querySelector('[data-' + source.key + '-bar]');
+                            const track = bar.previousElementSibling;
+                            const ratio = Number(bar.getAttribute('width'))
+                                / Number(track.getAttribute('width'));
+                            ratios.push(ratio);
+                            shares.push(raw);
+                            result.geometry &&= Math.abs(ratio - (scale ? raw / scale : 0)) < 0.00005;
+                            const texts = group.querySelectorAll(':scope > text');
+                            const label = Number.parseFloat(texts[source.key === 'code' ? 2 : 4].textContent);
+                            // Named labels round to 0.1%; Others balances the remainder.
+                            result.labels &&= Math.abs(label - raw)
+                                <= (row.name === 'Others' ? 0.5 : 0.051);
+                        }
+                        const largest = Math.max(...shares);
+                        result.geometry &&= scale >= largest - 0.000001
+                            && scale < largest + 0.100001
+                            && Math.max(...ratios) >= 0.99
+                            && Math.max(...ratios) <= 1.000001;
+                    }
+                    for (const group of groups) {
+                        const row = rows.get(group.dataset.languageRow);
+                        const repo = group.querySelector('[data-repository-count]');
+                        const text = group.querySelector(':scope > text');
+                        const expectedRepo = row.repositoryCount === null ? '— repos'
+                            : row.repositoryCount.toLocaleString('en-US')
+                                + (row.repositoryCount === 1 ? ' repo' : ' repos');
+                        result.repositories &&= repo.textContent === expectedRepo;
+                        const code = group.querySelector('[data-code-value]');
+                        const time = group.querySelector('[data-time-value]');
+                        const codeBar = group.querySelector('[data-code-bar]');
+                        const timeBar = group.querySelector('[data-time-bar]');
+                        result.metadata &&= /^(?:[\d,]+ repos?|— repos)$/.test(repo.textContent)
+                            && Number(repo.getAttribute('y')) > Number(text.getAttribute('y'))
+                            && repo.getBBox().x + repo.getBBox().width < Number(codeBar.getAttribute('x'))
+                            && /^[\d.]+ (?:B|KB|MB|GB|TB)$/.test(code.textContent)
+                            && /^\d[\d,]*h \d+m$/.test(time.textContent)
+                            && code.getAttribute('x') === codeBar.getAttribute('x')
+                            && time.getAttribute('x') === timeBar.getAttribute('x')
+                            && Number(code.getAttribute('y'))
+                                > Number(codeBar.getAttribute('y')) + Number(codeBar.getAttribute('height'))
+                            && Number(time.getAttribute('y'))
+                                > Number(timeBar.getAttribute('y')) + Number(timeBar.getAttribute('height'));
+                    }
+                    return result;
+                }, expected);
+                checks.languageSubtitles &&= chart.metadata;
+                checks.maxNormalizedBars &&= chart.geometry;
+                checks.trueSourcePercentLabels &&= chart.labels;
+                checks.scaleHeaders &&= chart.headers;
+                checks.svgRepositoryCounts &&= chart.repositories;
             }
             checks.footerLayout &&= await svgPage.evaluate(({ rank, username }) => {
                 const ranking = document.querySelector('[data-profile-rank]');
@@ -308,7 +415,9 @@ try {
                     && Math.abs(ratingBox.bottom - times.bottom) < 2;
             }, { rank, username: expected.github.data.username });
             const suffix = view === 'overview' ? theme : 'activity-' + theme;
-            await svgPage.screenshot({ path: 'artifacts/card-' + suffix + '.png' });
+            await svgPage.locator('svg').first().screenshot({
+                path: 'artifacts/card-' + suffix + '.png',
+            });
         }
     }
     checks.svgTextWithinViewbox = clipping.length === 0;

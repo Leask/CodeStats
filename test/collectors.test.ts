@@ -155,7 +155,7 @@ describe('GitHub collector', () => {
         ]);
         const data = await fetchGitHub(allGithubEnv, fetcher);
         expect(data).toMatchObject({
-            collectionVersion: 6, stars: 12, repositories: 4,
+            collectionVersion: 7, stars: 12, repositories: 4,
             analyzedRepositories: 4, analyzedForks: 1, totalBytes: 480, forks: 6,
         });
         expect(requests).toHaveLength(2);
@@ -188,6 +188,64 @@ describe('GitHub collector', () => {
         expect(requests[1].body.variables).toMatchObject({
             affiliations: ['OWNER'], isFork: false,
         });
+    });
+
+    it('counts the same complete scope without identities or extra requests', async () => {
+        const withLanguages = (id: string, values: Array<[string, number]>) => ({
+            ...repository(id),
+            languages: {
+                totalSize: values.reduce((sum, [, size]) => sum + size, 0),
+                pageInfo: pageInfo(),
+                edges: values.map(([name, size]) => ({
+                    size, node: { name, color: '#3178c6' },
+                })),
+            },
+        });
+        const nodes = [
+            withLanguages('own-private-identity', [
+                ['TypeScript', 70], ['JavaScript', 30], ['Python', 10],
+            ]),
+            { ...withLanguages('fork-private-identity', [
+                ['Python', 10], ['JavaScript', 20], ['TypeScript', 60],
+            ]), isPrivate: true, isFork: true },
+            { ...withLanguages('org-private-identity', [
+                ['Makefile', 5], ['C++', 20], ['C', 10],
+            ]), owner: { login: 'private-organization' }, isPrivate: true },
+            { ...withLanguages('collab-private-identity', [
+                ['JavaScript', 0], ['Rust', 120],
+            ]), owner: { login: 'private-collaborator' } },
+            withLanguages('empty-private-identity', []),
+        ];
+        const { fetcher, requests } = sequence([
+            privateJson({ ...allProfile, user: { ...allProfile.user,
+                repositories: { totalCount: 5 },
+                publicRepositories: { totalCount: 3 },
+                privateRepositories: { totalCount: 2 } } }),
+            privateJson(allRepositories(nodes, 5)),
+        ]);
+        const data = await fetchGitHub(allGithubEnv, fetcher);
+        expect(data).toMatchObject({
+            collectionVersion: 7, repositories: 5, analyzedRepositories: 5,
+            analyzedForks: 1,
+        });
+        expect(data.repositoryLanguageCounts).toEqual([
+            { languages: ['C', 'C++', 'Makefile'], repositories: 1 },
+            { languages: ['JavaScript', 'Python', 'TypeScript'], repositories: 2 },
+            { languages: ['Rust'], repositories: 1 },
+            { languages: [], repositories: 1 },
+        ]);
+        expect(data.repositoryLanguageCounts?.reduce(
+            (sum, group) => sum + group.repositories, 0,
+        )).toBe(data.repositories);
+        expect(requests).toHaveLength(2);
+        expect(requests[1].body.variables).toMatchObject({
+            affiliations: ['COLLABORATOR', 'ORGANIZATION_MEMBER', 'OWNER'],
+            privacy: null, isFork: null,
+        });
+        expect(JSON.stringify(requests)).not.toMatch(/history\(|additions|deletions/);
+        expect(JSON.stringify(data)).not.toMatch(
+            /private-identity|private-organization|private-collaborator|fixture-only/,
+        );
     });
 
     it('rejects invalid filters before contacting GitHub', async () => {
@@ -227,6 +285,11 @@ describe('GitHub collector', () => {
         expect(data.languages.map((x) => [x.name, x.bytes])).toEqual([
             ['Python', 120], ['TypeScript', 120], ['JavaScript', 30],
         ]);
+        expect(data.repositoryLanguageCounts).toEqual([
+            { languages: ['JavaScript', 'TypeScript'], repositories: 1 },
+            { languages: ['Python'], repositories: 1 },
+        ]);
+        expect(requests).toHaveLength(4);
         expect(data.pullRequests).toBe(40);
         expect(data.mergedPullRequests).toBe(30);
         expect(requests[0]?.body.variables).toMatchObject({
@@ -476,6 +539,7 @@ describe('GitHub collector', () => {
         expect(data.name).toBe('Leask');
         expect(data.analyzedRepositories).toBe(0);
         expect(data.languages).toEqual([]);
+        expect(data.repositoryLanguageCounts).toEqual([]);
         expect(data.totalBytes).toBe(0);
     });
 });

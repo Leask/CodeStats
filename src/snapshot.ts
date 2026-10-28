@@ -27,6 +27,7 @@ export function createProfileCache(
     fetcher: Fetcher = fetch,
 ): SnapshotCache {
     const options = repositoryOptions(env);
+    // Retain the v6 key so old last-good data survives the count upgrade.
     const githubKey = ['github:repositories:v6',
         env.GITHUB_VISIBILITY ?? 'public',
         options.affiliations.join(','), String(options.includeForks)].join(':');
@@ -38,6 +39,7 @@ export function createProfileCache(
         freshSeconds: seconds(env.FRESH_SECONDS, 21600, 60),
         retrySeconds: seconds(env.RETRY_SECONDS, 900, 60),
         githubKey,
+        githubCollectionVersion: 7,
         githubActivityKey: `github:activity:${env.GITHUB_VISIBILITY ?? 'public'}:v3:`
             + (env.GITHUB_INCLUDE_OWN_CONTRIBUTIONS ?? 'true'),
         githubActivityCollectionVersion: 3,

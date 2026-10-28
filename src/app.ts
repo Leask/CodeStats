@@ -1,4 +1,6 @@
-import { renderCard, renderPage } from './render';
+import {
+    displayLanguages, joinLanguages, renderCard, renderPage, selectLanguages,
+} from './render';
 import { RANGES } from './types';
 import type { CardOptions, Range, Settings, StatsSnapshot } from './types';
 
@@ -100,7 +102,20 @@ export function createHandler<Config extends Settings>(
                         ? new Response(null, response) : response;
                 }
                 if (url.pathname === '/api/stats') {
-                    response = Response.json(data, {
+                    // Publish counts, never the internal membership histogram.
+                    const { repositoryLanguageCounts, ...github } = data.github.data ?? {};
+                    const languageRows = displayLanguages(selectLanguages(
+                        joinLanguages(data), options.sort, options.limit,
+                        data.github.data !== null, repositoryLanguageCounts,
+                    ), 2);
+                    response = Response.json({
+                        ...data,
+                        github: {
+                            ...data.github,
+                            data: data.github.data ? github : null,
+                        },
+                        languageRows,
+                    }, {
                         headers: { 'Cache-Control': 'no-store' },
                     });
                 } else {

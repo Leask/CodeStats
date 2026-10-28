@@ -42,8 +42,10 @@ npx playwright install chromium
 expects the populated default ten-row card and available datasets; it is a review
 of the running real profile, not an offline unit test for every account shape.
 It checks controls, Markdown copying, grouped language totals, themes/ranges,
-profile header, SVG bounds and mobile overflow. Ignored screenshots/receipts go
-to `artifacts/`.
+profile header, independent scale geometry, repository unions, metadata placement,
+SVG bounds and mobile overflow. The repository collection and WakaTime must be
+fresh; activity's actual stale/error state must match the displayed source panel.
+Ignored screenshots/receipts go to `artifacts/`.
 
 Verify the route contract as well: `/` and `/card.svg` return transparent SVG by
 default; `/build` and `/build/` return HTML. The builder defaults to transparent,
@@ -78,3 +80,6 @@ uses the project's four-space indentation and strict TypeScript settings.
 [Historical local validation observations](history/validation-2026-10-26.md) are
 retained separately. Those dated measurements are not claims about a new account,
 current upstream freshness, deployed Cloudflare capacity or GitHub image-proxy timing.
+
+[Independent scales and repository-count validation](history/validation-2026-10-28.md)
+records the later local review, including the separate activity-scope limitation.
