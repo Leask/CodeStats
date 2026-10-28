@@ -1,4 +1,5 @@
 import type {
+    AIService,
     CardOptions,
     LanguageRow,
     Range,
@@ -598,6 +599,34 @@ function sourceLine<T>(name: string, source: SourceSnapshot<T>): string {
     return `${name} · ${state} · ${date(source.lastSuccessAt)}`;
 }
 
+const AI_LABELS: Record<AIService, string> = {
+    openrouter: 'OpenRouter', codex: 'Codex', anthropic: 'Anthropic API',
+};
+
+function tokenTotal(value: number | null | undefined): string {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? new Intl.NumberFormat('en-US', {
+            notation: 'compact', maximumFractionDigits: 1,
+        }).format(value) : '—';
+}
+
+/** Keep complete service labels together while fitting the footer width. */
+function refreshLines(labels: string[], maximumWidth: number): string[] {
+    const lines: string[] = [];
+    let line = '';
+    for (const label of labels) {
+        const next = line ? line + ' | ' + label : label;
+        if (line && next.length * 6.2 > maximumWidth) {
+            lines.push(line);
+            line = label;
+        } else {
+            line = next;
+        }
+    }
+    if (line) lines.push(line);
+    return lines;
+}
+
 export function renderCard(snapshot: StatsSnapshot, options: CardOptions): string {
     const font = { large: 27, medium: 13, small: 11 } as const;
     const light = options.theme === 'light';
@@ -629,12 +658,19 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const timeScale = snapshot.wakatime.data
         ? languageScale(selected.map(row => row.timePercent)) : null;
     const activity = options.view === 'activity';
+    const aiSources = (['openrouter', 'codex', 'anthropic'] as const)
+        .flatMap(service => {
+            const source = snapshot.aiUsage?.[service];
+            return source ? [{ service, source, label: AI_LABELS[service] }] : [];
+        });
     const empty = rows.length === 0;
     const bodyHeight = activity ? 448 : Math.max(96, rows.length * 39 + 24);
     const metricRowHeight = 64;
     const hiddenHeaderHeight = options.header === false ? 100 : 0;
     const contentOffset = 61 - hiddenHeaderHeight;
-    const footerY = 257 + contentOffset + bodyHeight;
+    const tableBottom = 257 + contentOffset + bodyHeight;
+    const usageHeight = !activity && aiSources.length ? 112 : 0;
+    const footerY = tableBottom + usageHeight;
     const github = snapshot.github.data;
     const activitySource = githubActivitySource(snapshot);
     const githubActivity = activitySource.data;
@@ -735,14 +771,22 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `${rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2)}% · ${rank.level}` : '');
     const footerLabelX = rank ? 52 : 32;
     const footerLabelWidth = footerLabel.length * font.small * 0.6;
-    const refreshLabel = `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)} | `
-        + `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`;
+    const refreshLabels = [
+        `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)}`,
+        `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`,
+        ...aiSources.map(({ label, source }) => `${label}: `
+            + refreshAge(source.lastSuccessAt, snapshot.generatedAt)),
+    ];
+    const refreshLabel = refreshLabels.join(' | ');
     const inlineRefreshX = Math.ceil(footerLabelX + footerLabelWidth + 16);
-    const wrapFooter = footerLabelWidth > 220
+    const wrapFooter = aiSources.length > 0 || footerLabelWidth > 220
         || inlineRefreshX + 20 + refreshLabel.length * font.small * 0.56 > 594;
     const refreshX = wrapFooter ? 32 : inlineRefreshX;
     const refreshY = footerY + 29 + (wrapFooter ? 22 : 0);
-    const height = footerY + 40 + (wrapFooter ? 22 : 0);
+    const lines = aiSources.length ? refreshLines(refreshLabels, 796) : [refreshLabel];
+    const creditY = aiSources.length ? footerY + 29 : refreshY;
+    const height = footerY + 40 + (wrapFooter ? 22 : 0)
+        + (lines.length - 1) * 20;
     const footerRank = `<g data-profile-${rank ? 'rank' : 'identity'}="true">`
         + (rank ? '<title>Estimated percentile from the '
         + 'GitHub Stats Extended weighted model: commits, PRs, issues, recent '
@@ -857,6 +901,37 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const rangeEnd = waka?.end ? ` · through ${waka.end.slice(0, 10)}`
         : waka?.rangeLabel ? ` · ${waka.rangeLabel}` : '';
     const through = waka && !waka.includesToday ? ' · today excluded by source' : '';
+    const usageMarkup = usageHeight ? '<g data-ai-usage-summary="true">'
+        + `<path d="M32 ${tableBottom}H848" stroke="${palette.line}"/>`
+        + text(32, tableBottom + 25, 'TOKEN USAGE', font.small, palette.muted,
+            'letter-spacing="1.1"')
+        + aiSources.map(({ service, source, label }, index) => {
+            const width = 816 / aiSources.length;
+            const x = 32 + index * width;
+            const total = source.data?.totalTokens;
+            const exact = total === null || total === undefined ? 'unavailable'
+                : number(total) + ' tokens';
+            return `<g data-token-service="${service}" data-usage-status="${source.status}">`
+                + '<title>' + xml(`${label}: ${exact}. `
+                    + `${source.data?.period ?? 'No successful snapshot'}. `
+                    + `${source.data?.scope ?? ''} ${sourceLine(label, source)}.`)
+                + '</title>'
+                + (index ? `<path d="M${x - 16} ${tableBottom + 40}`
+                    + `v54" stroke="${palette.line}"/>` : '')
+                + `<svg data-token-icon="true" x="${x}" y="${tableBottom + 39}" `
+                + `width="22" height="22" viewBox="0 0 24 24" fill="none" `
+                + `stroke="${palette.muted}" stroke-width="1.5" aria-hidden="true">`
+                + '<path d="m12 2 8.66 5v10L12 22l-8.66-5V7Z"/>'
+                + '<path d="M8 8h8m-4 0v8"/></svg>'
+                + text(x + 30, tableBottom + 59, tokenTotal(total),
+                    font.large, palette.fg, 'font-weight="650" data-token-total="true"')
+                + text(x, tableBottom + 80, label + ' · tokens', font.medium,
+                    palette.fg, 'data-token-label="true"')
+                + text(x, tableBottom + 98,
+                    source.data?.period ?? 'Not available yet', font.small,
+                    palette.muted, 'data-token-period="true"')
+                + '</g>';
+        }).join('') + '</g>' : '';
     return `<svg xmlns="http://www.w3.org/2000/svg" width="880" height="${height}" `
         + `viewBox="0 0 880 ${height}" role="img" aria-labelledby="title desc">`
         + `<title id="title">${xml(title)}</title>`
@@ -870,6 +945,9 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
             + 'Time share and code share have separate denominators. '
             + 'GitHub counts repository bytes, not individual authorship.')
         + xml(` ${sourceLine('GitHub activity', activitySource)}. `)
+        + xml(aiSources.map(({ label, source }) => sourceLine(label, source)
+            + '. Token totals use each service\'s stated period and accounting rules; '
+            + 'they are not added across services.').join(' '))
         + (activity ? xml(`Activity scope: ${githubActivity?.scope ?? 'unavailable'}. `
             + `Repository byte scope: ${github?.scope ?? 'unavailable'}. `
             + 'Private repository names are never included. '
@@ -884,16 +962,20 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + metricMarkup
         + `<path d="M32 ${217 + contentOffset}H848" stroke="${palette.line}"/>`
         + `<g transform="translate(0 ${contentOffset})">${body}</g>`
+        + usageMarkup
         + `<path d="M32 ${footerY}H848" stroke="${palette.line}"/>`
         + footerRank
-        + `<g data-refresh-times="true"><svg x="${refreshX}" y="${refreshY - 11}" width="14" height="14" `
-        + `viewBox="0 0 16 16" fill="${palette.muted}" aria-hidden="true"><path d="${CLOCK_ICON}"/></svg>`
-        + text(refreshX + 20, refreshY, refreshLabel, font.small, palette.muted)
+        + '<g data-refresh-times="true">'
+        + lines.map((line, index) => `<g data-refresh-line="${index}">`
+            + `<svg x="${refreshX}" y="${refreshY - 11 + index * 20}" width="14" height="14" `
+            + `viewBox="0 0 16 16" fill="${palette.muted}" aria-hidden="true"><path d="${CLOCK_ICON}"/></svg>`
+            + text(refreshX + 20, refreshY + index * 20, line,
+                font.small, palette.muted) + '</g>').join('')
         + '</g><a data-project-credit="true" href="https://github.com/Leask/CodeStats" '
         + 'target="_blank" rel="noopener noreferrer">'
-        + `<svg x="610" y="${refreshY - 11}" width="14" height="14" viewBox="0 0 16 16" `
+        + `<svg x="610" y="${creditY - 11}" width="14" height="14" viewBox="0 0 16 16" `
         + `fill="${palette.muted}" aria-hidden="true"><path d="${GITHUB_ICON}"/></svg>`
-        + `<text x="630" y="${refreshY}" font-size="${font.small}" `
+        + `<text x="630" y="${creditY}" font-size="${font.small}" `
         + `fill="${palette.muted}">Power by github.com/Leask/`
         + `<tspan fill="${palette.time}" font-weight="650">CodeStats</tspan></text>`
         + '</a></g>'
@@ -935,7 +1017,7 @@ text-transform:uppercase;font-weight:650;margin:0 0 19px}.control{margin:0 0 18p
 label{display:block;color:#c8d2df;font-size:12px;margin-bottom:7px}select,input[type=url]{width:100%;
 border:1px solid #354252;border-radius:6px;background:#101720;color:var(--text);padding:9px 10px}
 .source-panel{padding:19px;margin-top:16px}.source-state{padding:0 0 15px;margin:0 0 15px;border-bottom:1px solid var(--line)}
-.source-state:last-child{padding:0;margin:0;border:0}.source-head{display:flex;justify-content:space-between;gap:8px;
+.source-state:last-child,.source-state.last-source{padding:0;margin:0;border:0}.source-head{display:flex;justify-content:space-between;gap:8px;
 font-size:12px}.badge{font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:var(--green)}
 .badge.stale,.badge.unavailable{color:#e2b570}.source-state small{color:var(--muted);display:block;font-size:10px;
 line-height:1.6;margin-top:5px;overflow-wrap:anywhere}.preview-label{display:flex;align-items:center;
@@ -1006,13 +1088,13 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <option value="alternating">Selection order</option>
 <option value="name">Alphabetical</option></select></div>
 </form>
-<section class="source-panel"><h2 class="section-title">Two upstream services</h2><p class="detail-note">GitHub has two cached datasets; WakaTime has one.</p>
+<section class="source-panel"><h2 class="section-title">Source status</h2><p class="detail-note">GitHub has two cached datasets. Each connected service keeps its own successful snapshot.</p>
 <div class="source-state"><div class="source-head"><span>GitHub · repositories</span><span class="badge" id="github-status">Loading</span></div>
 <small id="github-time">Waiting for source</small><small id="github-error"></small></div>
 <div class="source-state"><div class="source-head"><span>GitHub · activity</span><span class="badge" id="githubActivity-status">Loading</span></div>
 <small id="githubActivity-time">Waiting for source</small><small id="githubActivity-error"></small></div>
 <div class="source-state"><div class="source-head"><span>WakaTime</span><span class="badge" id="wakatime-status">Loading</span></div>
-<small id="wakatime-time">Waiting for source</small><small id="wakatime-error"></small></div></section>
+<small id="wakatime-time">Waiting for source</small><small id="wakatime-error"></small></div><div id="ai-sources"></div></section>
 </aside>
 <main>
 <div class="preview-label"><span>README card</span><a id="json-link" href="/api/stats?range=all_time" target="_blank" rel="noopener">View source JSON ↗</a></div>
@@ -1210,6 +1292,39 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
             $(name + '-time').textContent = date(source.lastSuccessAt);
             $(name + '-error').textContent = source.lastError || '';
         }
+        const aiPanels = [];
+        for (const [service, label] of [
+            ['openrouter', 'OpenRouter'], ['codex', 'Codex'],
+            ['anthropic', 'Anthropic API'],
+        ]) {
+            const source = snapshot.aiUsage && snapshot.aiUsage[service];
+            if (!source) continue;
+            const panel = document.createElement('div');
+            panel.className = 'source-state';
+            panel.dataset.usageSource = service;
+            const head = document.createElement('div');
+            head.className = 'source-head';
+            const name = document.createElement('span');
+            name.textContent = label;
+            const badge = document.createElement('span');
+            badge.id = service + '-status';
+            badge.className = 'badge ' + source.status;
+            badge.textContent = source.status;
+            head.append(name, badge);
+            const refreshed = document.createElement('small');
+            refreshed.id = service + '-time';
+            refreshed.textContent = date(source.lastSuccessAt);
+            const period = document.createElement('small');
+            period.textContent = source.data ? source.data.period : '';
+            const error = document.createElement('small');
+            error.id = service + '-error';
+            error.textContent = source.lastError || '';
+            panel.append(head, refreshed, period, error);
+            aiPanels.push(panel);
+        }
+        $('ai-sources').replaceChildren(...aiPanels);
+        $('wakatime-status').closest('.source-state').classList
+            .toggle('last-source', aiPanels.length === 0);
         const github = snapshot.github.data;
         const waka = snapshot.wakatime.data;
         $('identity').textContent = '@' + (github ? github.username : waka ? waka.username : 'profile');

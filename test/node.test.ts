@@ -129,6 +129,47 @@ async function stats(url: string): Promise<StatsSnapshot> {
 }
 
 describe('Node runtime and persistent snapshots', () => {
+    it('accepts only authorized bounded aggregate imports through real Node HTTP', async () => {
+        const token = 'isolated-sync-fixture-not-a-secret'.repeat(2);
+        let reads = 0;
+        const node = createNodeService({ ...settings,
+            CODEX_USAGE_ENABLED: 'true', CODEX_SYNC_TOKEN: token,
+        }, {
+            dataDirectory: directory(), fetcher: upstream().fetcher,
+            codexReader: async () => {
+                reads++;
+                throw new Error('The valid imported snapshot should avoid this read.');
+            },
+        });
+        services.push(node);
+        const url = await node.listen(0);
+        const observation = {
+            observedAt: new Date(Date.now() - 10_000).toISOString(),
+            summary: { lifetimeTokens: 123456, peakDailyTokens: null,
+                longestRunningTurnSec: null, currentStreakDays: 1, longestStreakDays: 1 },
+            accessToken: 'fixture-private-field-not-for-storage',
+        };
+        const upload = (secret: string, payload: unknown = observation) => fetch(
+            url + '/api/usage/codex', {
+                method: 'POST', headers: { Authorization: 'Bearer ' + secret,
+                    'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+            },
+        );
+        expect((await upload('wrong')).status).toBe(401);
+        expect((await upload(token)).status).toBe(200);
+        expect((await upload(token)).status).toBe(400);
+        expect((await upload(token, 'x'.repeat(20_000))).status).toBe(413);
+        const result = await stats(url);
+        expect(result.aiUsage!.codex).toMatchObject({
+            status: 'fresh', lastSuccessAt: observation.observedAt,
+            data: { totalTokens: 123456 },
+        });
+        expect(reads).toBe(0);
+        expect(JSON.stringify(result)).not.toContain(token);
+        expect(JSON.stringify(result)).not.toContain(observation.accessToken);
+        expect((await fetch(url + '/api/usage/codex')).status).toBe(405);
+    });
+
     it('persists the same key across restart without sharing account namespaces', async () => {
         const path = directory();
         const first = new SqliteStorage(path, 'profile-one');

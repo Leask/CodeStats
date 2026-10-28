@@ -65,3 +65,40 @@ Language-empty repositories remain in the headline inventory.
 The local Node preview remains at `http://127.0.0.1:8791/build`, using its existing
 private cache. Credentials were not written into source or configuration. This
 review did not commit, push or deploy the changes.
+
+## Optional AI usage extension
+
+The preceding language-card milestone was subsequently committed and pushed as
+`d1fffe5`. The AI usage extension below was reviewed locally afterward.
+
+- 237 unit tests passed, including collector completeness, token accounting,
+  Codex read failure/timeout, bounded authenticated imports, observation age,
+  concurrent imports and source-independent last-good fallback.
+- TypeScript, Node build, Wrangler dry-run build and diff checks passed.
+- 58 real-profile Chrome Beta checks, 25 generated-Worker/workerd browser checks
+  and 13 workerd/SQLite cache checks passed. The Worker check imported only mock
+  aggregate observations and exercised both read-only provider analytics adapters.
+- 18 additional isolated layout cases covered one, two and three usage services
+  across all themes and header settings, with no text clipping. The native Chrome
+  builder was also reloaded and visually inspected through Computer Use.
+- The official local Codex `account/usage/read` returned 131,320,846,898 lifetime
+  tokens. Its summary matched the supplied profile screenshot at 131.3B. The
+  configured Node preview retained that successful observation across restart.
+- The existing OpenRouter inference credential passed `/api/v1/key` with HTTP200
+  but failed account activity with HTTP403. The new analytics collector also
+  reported `Management key required`. No OpenRouter token total was fabricated.
+  A Management credential is still required for live acceptance; the default
+  reporting interval is explicitly 30 completed UTC days, not lifetime.
+- Anthropic was not configured. Its organization API adapter and all three-service
+  layouts were validated with isolated fixtures, not a live Anthropic account.
+- Codex credentials were read only by Codex's normal login mechanism. No login
+  token, cookie or conversation data was exported. The optional Worker import
+  accepts only normalized statistics and retains the original observation age.
+- A pattern scan over the changed source/config-sample/test files found no
+  credential-like values. No real credentials were added to tracked files.
+
+The local preview remains `http://127.0.0.1:8791/build`. Ignored receipts include
+`artifacts/ai-all-unit-tests.json`, `browser-review.json`,
+`worker-browser-review.json`, `cache-runtime-review.json` and
+`usage-ui-mock-review.json`. This extension did not deploy to Cloudflare or install
+a sync timer. See [AI usage setup](../AI-USAGE.md) for the Node/Worker distinction.

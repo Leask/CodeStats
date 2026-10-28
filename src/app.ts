@@ -3,6 +3,7 @@ import {
 } from './render';
 import { RANGES } from './types';
 import type { CardOptions, Range, Settings, StatsSnapshot } from './types';
+import { CODEX_IMPORT_PATH, importCodexRequest } from './usage-import';
 
 function rangeFrom(url: URL, env: Settings): Range {
     const value = url.searchParams.get('range') ?? env.DEFAULT_RANGE;
@@ -40,10 +41,15 @@ function cardOptions(url: URL): CardOptions {
 /** Shared HTTP behavior for the Node and Worker adapters. */
 export function createHandler<Config extends Settings>(
     readSnapshot: (env: Config, range: Range) => Promise<StatsSnapshot>,
+    saveCodex?: (env: Config, payload: unknown) => Promise<void>,
 ) {
     return {
         async fetch(request: Request, env: Config): Promise<Response> {
             const url = new URL(request.url);
+            if (url.pathname === CODEX_IMPORT_PATH && saveCodex) {
+                return importCodexRequest(request, env,
+                    payload => saveCodex(env, payload));
+            }
             if (!['GET', 'HEAD'].includes(request.method)) {
                 return new Response('Method not allowed', {
                     status: 405, headers: { Allow: 'GET, HEAD' },

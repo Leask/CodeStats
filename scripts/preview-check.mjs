@@ -59,6 +59,18 @@ try {
         .textContent() === (activity?.status ?? 'unavailable')
         && await page.locator('#githubActivity-error').textContent()
             === (activity?.lastError ?? '');
+    const configuredUsage = ['openrouter', 'codex', 'anthropic']
+        .filter(service => expected.aiUsage?.[service]);
+    checks.optionalUsageSourceState = true;
+    for (const service of configuredUsage) {
+        const source = expected.aiUsage[service];
+        checks.optionalUsageSourceState &&= await page.locator('#' + service + '-status')
+            .textContent() === source.status
+            && await page.locator('#' + service + '-error').textContent()
+                === (source.lastError ?? '');
+    }
+    checks.onlyConfiguredUsageSources = await page.locator('[data-usage-source]').count()
+        === configuredUsage.length;
     const count = await page.locator('#language-body tr').count();
     const names = await page.locator('#language-body tr td:first-child')
         .allTextContents();
@@ -231,6 +243,7 @@ try {
     checks.trueSourcePercentLabels = true;
     checks.scaleHeaders = true;
     checks.svgRepositoryCounts = true;
+    checks.tokenUsageStrip = true;
     const clipping = [];
     for (const view of ['overview', 'activity']) {
         for (const theme of ['dark', 'light', 'transparent']) {
@@ -257,6 +270,31 @@ try {
                         .every(icon => size(icon.parentNode.querySelector('text')) === 13);
             });
             const rank = profileRank(expected.github.data, activity?.data ?? null);
+            checks.tokenUsageStrip &&= await svgPage.evaluate(({ usage, view }) => {
+                const configured = ['openrouter', 'codex', 'anthropic']
+                    .filter(service => usage?.[service]);
+                const groups = [...document.querySelectorAll('[data-token-service]')];
+                if (view === 'activity') return groups.length === 0;
+                if (groups.length !== configured.length) return false;
+                const formatter = new Intl.NumberFormat('en-US', {
+                    notation: 'compact', maximumFractionDigits: 1,
+                });
+                return groups.every((group, index) => {
+                    const service = configured[index];
+                    const source = usage[service];
+                    const total = source.data?.totalTokens;
+                    const value = typeof total === 'number' ? formatter.format(total) : '—';
+                    const languageRows = [...document.querySelectorAll('[data-language-row]')];
+                    const lastLanguage = languageRows.at(-1)?.getBoundingClientRect();
+                    const bounds = group.getBoundingClientRect();
+                    return group.dataset.tokenService === service
+                        && group.dataset.usageStatus === source.status
+                        && group.querySelector('[data-token-total]').textContent === value
+                        && group.querySelector('[data-token-period]').textContent
+                            === (source.data?.period ?? 'Not available yet')
+                        && (!lastLanguage || bounds.top > lastLanguage.bottom + 8);
+                });
+            }, { usage: expected.aiUsage, view });
             checks.avatarRankRing &&= await svgPage.evaluate(rank => {
                 const rim = document.querySelector('[data-avatar-rank-rim]');
                 const arc = document.querySelector('[data-avatar-rank-progress]');
@@ -392,7 +430,7 @@ try {
                 checks.scaleHeaders &&= chart.headers;
                 checks.svgRepositoryCounts &&= chart.repositories;
             }
-            checks.footerLayout &&= await svgPage.evaluate(({ rank, username }) => {
+            checks.footerLayout &&= await svgPage.evaluate(({ rank, username, usage }) => {
                 const ranking = document.querySelector('[data-profile-rank]');
                 const trophy = ranking.querySelector('[data-rank-icon]')
                     .getBoundingClientRect();
@@ -406,14 +444,30 @@ try {
                 const text = credit.querySelector('text').getBoundingClientRect();
                 const iconGaps = [ratingBox.left - trophy.right,
                     times.left - clock.right, text.left - logo.right];
-                return rating.textContent === '@' + username + ' · Top '
+                const identity = rating.textContent === '@' + username + ' · Top '
                     + (rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2))
                     + '% · ' + rank.level
-                    && iconGaps.every(gap => Math.abs(gap - 6) < 0.5)
+                    && iconGaps.every(gap => Math.abs(gap - 6) < 0.5);
+                const configured = ['openrouter', 'codex', 'anthropic']
+                    .filter(service => usage?.[service]);
+                if (!configured.length) return identity
                     && ratingBox.right + 16 <= clock.left
                     && times.right + 16 <= logo.left
                     && Math.abs(ratingBox.bottom - times.bottom) < 2;
-            }, { rank, username: expected.github.data.username });
+                const bounds = document.querySelector('svg').getBoundingClientRect();
+                return identity && ratingBox.right + 16 <= logo.left
+                    && times.top > ratingBox.bottom + 6
+                    && Math.abs(ratingBox.bottom - text.bottom) < 2
+                    && [...refresh.querySelectorAll('[data-refresh-line]')].every(line => {
+                        const icon = line.querySelector('svg').getBoundingClientRect();
+                        const copy = line.querySelector('text').getBoundingClientRect();
+                        return Math.abs(copy.left - icon.right - 6) < 0.5
+                            && copy.right < bounds.right;
+                    })
+                    && configured.every(service => refresh.textContent.includes({
+                        openrouter: 'OpenRouter:', codex: 'Codex:', anthropic: 'Anthropic API:',
+                    }[service]));
+            }, { rank, username: expected.github.data.username, usage: expected.aiUsage });
             const suffix = view === 'overview' ? theme : 'activity-' + theme;
             await svgPage.locator('svg').first().screenshot({
                 path: 'artifacts/card-' + suffix + '.png',
@@ -431,8 +485,11 @@ try {
             return !root.querySelector('[data-profile-header]')
                 && !root.querySelector('[data-avatar-rank-ring]')
                 && !!root.querySelector('[data-profile-rank] [data-rank-icon]')
-                && root.querySelector('[data-profile-rank]').getBoundingClientRect().right
-                    < root.querySelector('[data-refresh-times]').getBoundingClientRect().left
+                && (() => {
+                    const rank = root.querySelector('[data-profile-rank]').getBoundingClientRect();
+                    const refresh = root.querySelector('[data-refresh-times]').getBoundingClientRect();
+                    return rank.right < refresh.left || rank.bottom + 6 < refresh.top;
+                })()
                 && metrics.length === 8
                 && metrics[0].getBoundingClientRect().top < bounds.top + 30
                 && [...root.querySelectorAll('text')].every(node => {

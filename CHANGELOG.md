@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add optional OpenRouter account analytics, local Codex account lifetime tokens
+  and Anthropic API organization usage, each with its own last-good cache and
+  refresh time. Codex Worker sync transfers numeric aggregates only, using a
+  separate authenticated import endpoint.
 - Independently scale GitHub/WakaTime bars to their largest displayed share;
   state each full-track percentage in its heading and preserve true shares.
 - Count repositories per merged language and Others using deduplicated unions

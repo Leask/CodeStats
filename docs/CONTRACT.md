@@ -29,6 +29,9 @@ adapters, sharing collectors, cache, routes and rendering.
   repositories, GitHub activity and WakaTime. Two services, three datasets.
   Scope changes use separate keys. Fresh6h, retry15m, rate-limit-aware.
   Warm requests return saved data while refreshing; failure retains values/times.
+  Optional AI usage services have separate keys and reporting windows. Codex
+  imports preserve the actual observation time and never acquire freshness from
+  a visitor request. No provider credentials enter a public snapshot.
   Collection upgrades retain the v6 repository-key lineage and classify the old
   payload as stale, so adding language counts never erases last-good snapshots.
 - render.ts/app.ts: transparent SVG at `/` and `/card.svg`; HTML card builder at

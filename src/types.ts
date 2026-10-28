@@ -1,5 +1,8 @@
 export const RANGES = ['all_time', 'last_7_days', 'last_30_days'] as const;
 export type Range = typeof RANGES[number];
+export type AIService = 'openrouter' | 'codex' | 'anthropic';
+export type { AIUsageData } from './ai-usage';
+import type { AIUsageData } from './ai-usage';
 
 export interface GitHubData {
     collectionVersion?: 4 | 5 | 6 | 7;
@@ -87,6 +90,8 @@ export interface StatsSnapshot {
     github: SourceSnapshot<GitHubData>;
     githubActivity?: SourceSnapshot<GitHubActivityData>;
     wakatime: SourceSnapshot<WakaData>;
+    /** Optional services are absent unless configured by the deployment owner. */
+    aiUsage?: Partial<Record<AIService, SourceSnapshot<AIUsageData>>>;
     range: Range;
     generatedAt: string;
 }
@@ -123,6 +128,12 @@ export interface Settings {
     GITHUB_INCLUDE_FORKS?: string;
     GITHUB_INCLUDE_OWN_CONTRIBUTIONS?: string;
     WAKATIME_TOKEN?: string;
+    OPENROUTER_API_KEY?: string;
+    OPENROUTER_USAGE_SINCE?: string;
+    ANTHROPIC_ADMIN_KEY?: string;
+    ANTHROPIC_USAGE_SINCE?: string;
+    CODEX_USAGE_ENABLED?: string;
+    CODEX_SYNC_TOKEN?: string;
 }
 
 export interface Env extends Settings {

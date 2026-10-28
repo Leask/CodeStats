@@ -3,7 +3,7 @@ import {
     displayLanguages, joinLanguages, renderCard, renderPage, selectLanguages,
     timeRangeLabel, refreshAge, languageScale,
 } from '../src/render';
-import type { CardOptions, LanguageRow, StatsSnapshot } from '../src/types';
+import type { AIService, CardOptions, LanguageRow, StatsSnapshot } from '../src/types';
 import { LANGUAGE_ICONS, languageIcon } from '../src/language-icons';
 import { profileRank } from '../src/rank';
 
@@ -87,6 +87,121 @@ function rankedSnapshot(time: string[], code: string[]): StatsSnapshot {
         .reduce((sum, language) => sum + language.bytes, 0);
     return data;
 }
+
+function usageSnapshot(services: AIService[]): StatsSnapshot {
+    const data = activitySnapshot();
+    data.aiUsage = {};
+    for (const service of services) {
+        data.aiUsage[service] = {
+            status: 'fresh', lastSuccessAt: '2026-10-25T16:55:00Z',
+            lastAttemptAt: '2026-10-25T16:55:00Z', lastError: null, retryAt: null,
+            data: {
+                service, label: service, totalTokens: 131_320_846_898,
+                period: service === 'codex' ? 'Lifetime tokens' : 'Last 30 days',
+                since: service === 'codex' ? null : '2026-09-25T00:00:00Z',
+                until: '2026-10-25T00:00:00Z', scope: 'Provider aggregate tokens',
+            },
+        };
+    }
+    return data;
+}
+
+describe('optional token usage display', () => {
+    it('keeps unconfigured services absent and the original footer compact', () => {
+        const svg = renderCard(activitySnapshot(), options);
+        expect(svg).not.toContain('data-token-service');
+        expect(svg).not.toContain('>TOKEN USAGE</text>');
+        expect(svg).not.toContain('OpenRouter:');
+        expect(svg).not.toContain('Anthropic API:');
+        expect(svg.match(/data-refresh-line=/g)).toHaveLength(1);
+    });
+
+    it.each([1, 2, 3])('fits %i configured services below the language table', count => {
+        const services = ['openrouter', 'codex', 'anthropic'] as AIService[];
+        const data = usageSnapshot(services.slice(0, count));
+        const svg = renderCard(data, options);
+        expect(svg.match(/data-token-service=/g)).toHaveLength(count);
+        expect(svg.match(/data-token-total=/g)).toHaveLength(count);
+        expect(svg).toContain('>131.3B</text>');
+        expect(svg).toContain('131,320,846,898 tokens.');
+        expect(svg.indexOf('data-ai-usage-summary'))
+            .toBeGreaterThan(svg.lastIndexOf('data-language-row='));
+        expect(svg.indexOf('data-ai-usage-summary'))
+            .toBeLessThan(svg.indexOf('data-profile-rank='));
+        expect(svg).toContain('>OpenRouter · tokens</text>');
+        expect(svg).toContain('>Last 30 days</text>');
+        if (count >= 2) expect(svg).toContain('>Lifetime tokens</text>');
+        expect(svg.match(/data-refresh-line=/g)).toHaveLength(1);
+        const height = Number(svg.match(/height="(\d+)"/)![1]);
+        const hidden = renderCard(data, { ...options, header: false });
+        expect(height - Number(hidden.match(/height="(\d+)"/)![1])).toBe(100);
+        for (const match of svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"/g)) {
+            expect(Number(match[1])).toBeGreaterThanOrEqual(32);
+            expect(Number(match[1])).toBeLessThanOrEqual(848);
+            expect(Number(match[2])).toBeLessThan(height);
+        }
+        expect(new Set([...svg.matchAll(/font-size="([\d.]+)"/g)]
+            .map(match => Number(match[1])))).toEqual(new Set([27, 13, 11]));
+    });
+
+    it('keeps real zero, unknown and stale totals distinct, with independent times', () => {
+        const data = usageSnapshot(['openrouter', 'codex', 'anthropic']);
+        data.aiUsage!.openrouter!.data = null;
+        data.aiUsage!.openrouter!.lastSuccessAt = null;
+        data.aiUsage!.openrouter!.status = 'unavailable';
+        data.aiUsage!.openrouter!.lastError = 'Management key required';
+        data.aiUsage!.anthropic!.data!.totalTokens = 0;
+        data.aiUsage!.codex!.status = 'stale';
+        data.aiUsage!.codex!.lastError = 'Offline';
+        data.aiUsage!.codex!.lastSuccessAt = '2026-10-25T16:19:00Z';
+        const svg = renderCard(data, options);
+        expect(svg).toMatch(/data-token-total="true">—<\/text>/);
+        expect(svg).toMatch(/data-token-total="true">0<\/text>/);
+        expect(svg).toContain('Codex · saved data · refresh unavailable');
+        expect(svg).toContain('OpenRouter: not refreshed');
+        expect(svg).toContain('Codex: 41 mins ago');
+        expect(svg).toContain('Anthropic API: 5 mins ago');
+        expect(svg).toContain('not added across services');
+    });
+
+    it('wraps long refresh labels without removing a service or changing font sizes', () => {
+        const data = usageSnapshot(['openrouter', 'codex', 'anthropic']);
+        data.github.data!.username = 'a'.repeat(38);
+        for (const source of [data.github, data.wakatime,
+            ...Object.values(data.aiUsage!)]) {
+            source.lastSuccessAt = '2020-01-01T00:01:00Z';
+        }
+        const svg = renderCard(data, options);
+        expect(svg.match(/data-refresh-line=/g)).toHaveLength(2);
+        const age = refreshAge('2020-01-01T00:01:00Z', data.generatedAt);
+        for (const service of ['GitHub', 'WakaTime', 'OpenRouter', 'Codex', 'Anthropic API']) {
+            expect(svg).toContain(service + ': ' + age);
+        }
+        expect(svg).not.toContain('NaN');
+    });
+
+    it('discloses usage in activity freshness without duplicating the usage strip', () => {
+        const svg = renderCard(usageSnapshot(['codex']), { ...options, view: 'activity' });
+        expect(svg).not.toContain('data-ai-usage-summary');
+        expect(svg).toContain('Codex: 5 mins ago');
+        expect(svg).toContain('data-refresh-line="0"');
+    });
+
+    it('escapes provider periods/scopes and uses safe fixed labels', () => {
+        const data = usageSnapshot(['codex']);
+        data.aiUsage!.codex!.data!.period = '<script>bad</script>';
+        data.aiUsage!.codex!.data!.scope = '<image href="https://evil.invalid">';
+        data.aiUsage!.codex!.data!.label = '<script>bad</script>';
+        const svg = renderCard(data, options);
+        expect(svg).not.toContain('<script>');
+        expect(svg).not.toContain('<image href=');
+        expect(svg).toContain('&lt;script&gt;bad&lt;/script&gt;');
+        expect(svg).toContain('>Codex · tokens</text>');
+        expect(renderPage()).toContain('id="ai-sources"');
+        expect(renderPage()).toContain('snapshot.aiUsage[service]');
+        expect(renderPage()).not.toContain('.innerHTML');
+    });
+});
 
 describe('language comparison', () => {
     it('counts merged languages once per repo and unions the remaining groups', () => {

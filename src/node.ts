@@ -7,10 +7,16 @@ import { createHandler } from './app';
 import { SqliteStorage } from './node-storage';
 import { createProfileCache, profileIdentity } from './snapshot';
 import type { Fetcher, Settings } from './types';
+import { readCodexUsage } from './codex-node';
+import { normalizeCodexUsage } from './codex-usage';
+import { CODEX_IMPORT_PATH, MAX_USAGE_BODY } from './usage-import';
+
+export { readCodexUsage } from './codex-node';
 
 interface NodeOptions {
     dataDirectory?: string;
     fetcher?: Fetcher;
+    codexReader?: typeof readCodexUsage;
 }
 
 export function settingsFromEnvironment(
@@ -32,6 +38,12 @@ export function settingsFromEnvironment(
         RETRY_SECONDS: environment.RETRY_SECONDS ?? '900',
         GITHUB_TOKEN: environment.GITHUB_TOKEN,
         WAKATIME_TOKEN: environment.WAKATIME_TOKEN,
+        OPENROUTER_API_KEY: environment.OPENROUTER_API_KEY,
+        OPENROUTER_USAGE_SINCE: environment.OPENROUTER_USAGE_SINCE,
+        ANTHROPIC_ADMIN_KEY: environment.ANTHROPIC_ADMIN_KEY,
+        ANTHROPIC_USAGE_SINCE: environment.ANTHROPIC_USAGE_SINCE,
+        CODEX_USAGE_ENABLED: environment.CODEX_USAGE_ENABLED,
+        CODEX_SYNC_TOKEN: environment.CODEX_SYNC_TOKEN,
     };
 }
 
@@ -40,26 +52,52 @@ export function createNodeService(settings: Settings, options: NodeOptions = {})
     const storage = new SqliteStorage(
         options.dataDirectory ?? resolve('.data'), profileIdentity(settings),
     );
-    const cache = createProfileCache(storage, settings, options.fetcher);
+    const cache = createProfileCache(storage, settings, options.fetcher, {
+        codex: async () => normalizeCodexUsage(
+            await (options.codexReader ?? readCodexUsage)(),
+        ).data,
+    });
     const background = new Set<Promise<unknown>>();
     const waitUntil = (promise: Promise<unknown>) => {
         const observed = promise.catch(() => undefined);
         background.add(observed);
         void observed.finally(() => background.delete(observed));
     };
-    const handler = createHandler((_env, range) => cache.read(range, waitUntil));
+    const handler = createHandler((_env, range) => cache.read(range, waitUntil),
+        (_env, payload) => cache.saveCodexUsage(payload));
     const server: Server = createServer(async (incoming, outgoing) => {
-        // No endpoint accepts bodies. Drain them without retaining user input.
-        incoming.resume();
         try {
-            if (!['GET', 'HEAD'].includes(incoming.method ?? 'GET')) {
+            const url = new URL(incoming.url ?? '/', 'http://localhost');
+            const imports = incoming.method === 'POST'
+                && url.pathname === CODEX_IMPORT_PATH;
+            if (!['GET', 'HEAD'].includes(incoming.method ?? 'GET') && !imports) {
+                incoming.resume();
                 outgoing.writeHead(405, { Allow: 'GET, HEAD' });
                 outgoing.end('Method not allowed');
                 return;
             }
+            let body: Uint8Array | undefined;
+            if (imports) {
+                const chunks: Buffer[] = [];
+                let size = 0;
+                for await (const chunk of incoming.iterator({ destroyOnReturn: false })) {
+                    size += chunk.length;
+                    if (size > MAX_USAGE_BODY) {
+                        outgoing.writeHead(413);
+                        outgoing.end('Usage payload is too large.');
+                        incoming.resume();
+                        return;
+                    }
+                    chunks.push(chunk);
+                }
+                body = Buffer.concat(chunks);
+            } else {
+                incoming.resume();
+            }
             const request = new Request(
-                new URL(incoming.url ?? '/', 'http://localhost'), {
+                url, {
                     method: incoming.method ?? 'GET',
+                    ...(body ? { body } : {}),
                     headers: Object.fromEntries(Object.entries(incoming.headers)
                         .filter((entry): entry is [string, string] =>
                             typeof entry[1] === 'string')),

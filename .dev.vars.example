@@ -6,3 +6,10 @@
 GITHUB_TOKEN=replace_with_a_server_side_github_token
 # Optional WakaTime read-stats OAuth token (not a heartbeat ingestion key).
 # WAKATIME_TOKEN=replace_with_an_optional_read_stats_oauth_token
+# Optional OpenRouter Management key (ordinary inference keys cannot read tokens).
+# OPENROUTER_API_KEY=replace_with_a_management_key
+# Optional Anthropic organization Admin key, for API usage only.
+# ANTHROPIC_ADMIN_KEY=replace_with_an_anthropic_admin_key
+# Separate random >=32-character secret for aggregate-only Codex imports.
+# CODEX_SYNC_TOKEN=replace_with_an_independent_sync_secret
+# Enable CODEX_USAGE_ENABLED=true in wrangler.jsonc vars or Worker settings.

@@ -12,6 +12,7 @@ assert.equal(config.keep_names, false);
 assert.equal(config.minify, false);
 const directory = await mkdtemp(join(tmpdir(), 'codestats-worker-browser-'));
 const origin = 'https://codestats.test';
+const syncToken = 'isolated-sync-fixture-not-a-secret'.repeat(2);
 const mf = new Miniflare({
     ...convertV4MiniflareOptions({
         name: 'codestats-worker-browser-test', rootPath: process.cwd(),
@@ -21,9 +22,37 @@ const mf = new Miniflare({
             SNAPSHOTS: { className: 'SnapshotStore', useSQLite: true },
         },
         bindings: { ...config.vars, GITHUB_USERNAME: 'test',
-            WAKATIME_USERNAME: 'test' },
+            WAKATIME_USERNAME: 'test', CODEX_USAGE_ENABLED: 'true',
+            CODEX_SYNC_TOKEN: syncToken,
+            OPENROUTER_API_KEY: 'isolated-management-fixture',
+            ANTHROPIC_ADMIN_KEY: 'isolated-anthropic-fixture' },
         outboundService: async request => {
-            assert.equal(new URL(request.url).hostname, 'api.wakatime.com');
+            const url = new URL(request.url);
+            if (url.hostname === 'openrouter.ai') {
+                assert.equal(url.pathname, '/api/v1/analytics/query');
+                assert.equal(request.headers.get('authorization'),
+                    'Bearer isolated-management-fixture');
+                const query = await request.json();
+                assert.deepEqual(query.metrics, ['tokens_total']);
+                assert.equal(query.dimensions, undefined);
+                return Response.json({ data: {
+                    data: [{ tokens_total: '42000' }],
+                    metadata: { row_count: 1, truncated: false },
+                } });
+            }
+            if (url.hostname === 'api.anthropic.com') {
+                assert.equal(request.headers.get('x-api-key'), 'isolated-anthropic-fixture');
+                const since = url.searchParams.get('starting_at');
+                return Response.json({ data: [{
+                    starting_at: since,
+                    ending_at: new Date(Date.parse(since) + 86_400_000).toISOString(),
+                    results: [{ uncached_input_tokens: 100, output_tokens: 50,
+                        cache_read_input_tokens: 70, cache_creation: {
+                            ephemeral_5m_input_tokens: 20, ephemeral_1h_input_tokens: 10,
+                        } }],
+                }], has_more: false, next_page: null });
+            }
+            assert.equal(url.hostname, 'api.wakatime.com');
             return Response.json({ data: {
                 total_seconds_including_other_language: 100,
                 daily_average_including_other_language: 10,
@@ -44,6 +73,29 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
 let browser;
 const checks = {};
 try {
+    const observation = {
+        observedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
+        summary: { lifetimeTokens: 131320846898, peakDailyTokens: null,
+            longestRunningTurnSec: null, currentStreakDays: null, longestStreakDays: null },
+        credential: 'fixture-private-field-must-not-persist',
+    };
+    const upload = (token, body = observation) => mf.dispatchFetch(origin + '/api/usage/codex', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token,
+            'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    checks.codexImportRequiresSecret = (await upload('wrong')).status === 401;
+    checks.codexAggregateImported = (await upload(syncToken)).status === 200;
+    checks.codexOldObservationRejected = (await upload(syncToken)).status === 400;
+    const imported = await (await mf.dispatchFetch(origin + '/api/stats')).json();
+    checks.codexObservationAgePreserved = imported.aiUsage.codex.lastSuccessAt
+        === observation.observedAt;
+    checks.allOptionalSourcesCollected = imported.aiUsage.openrouter.data.totalTokens === 42000
+        && imported.aiUsage.anthropic.data.totalTokens === 250
+        && imported.aiUsage.codex.data.totalTokens === 131320846898;
+    checks.usageCredentialsNotPublished = !JSON.stringify(imported).includes(syncToken)
+        && !JSON.stringify(imported).includes('isolated-management-fixture')
+        && !JSON.stringify(imported).includes('isolated-anthropic-fixture')
+        && !JSON.stringify(imported).includes('fixture-private-field-must-not-persist');
     const html = await (await mf.dispatchFetch(origin + '/build')).text();
     checks.noBundlerHelperInBrowser = !html.includes('__name(');
     browser = await chromium.launch({ headless: true, executablePath });
@@ -73,6 +125,8 @@ try {
     checks.missingSecretVisible = (await page.locator('#github-error').textContent())
         .includes('Configure a server-side GITHUB_TOKEN');
     checks.wakaStillFresh = await page.locator('#wakatime-status').textContent() === 'fresh';
+    checks.optionalUsageStatusVisible = await page.locator('[data-usage-source]').count() === 3
+        && await page.locator('#codex-status').textContent() === 'fresh';
     checks.transparentDefault = await page.locator('#theme').inputValue() === 'transparent';
     checks.codeDefault = await page.locator('#sort').inputValue() === 'code';
     checks.readmeVisible = await page.locator('#readme-details').evaluate(node => node.open);
@@ -90,8 +144,11 @@ try {
     checks.optionalDetails = expanded.includes('\n\n<details>\n')
         && expanded.match(/\]\(https:\/\/github.com\/Leask\/CodeStats\)/g).length === 3;
     const root = await mf.dispatchFetch(origin + '/');
+    const rootMarkup = await root.text();
     checks.rootIsTransparentImage = root.headers.get('content-type').includes('image/svg+xml')
-        && (await root.text()).includes('@media(prefers-color-scheme:dark)');
+        && rootMarkup.includes('@media(prefers-color-scheme:dark)');
+    checks.tokenStripRenderedByWorker = rootMarkup.includes('131.3B')
+        && rootMarkup.includes('42K') && rootMarkup.includes('Anthropic API');
     await page.goto(origin + '/build?theme=dark&view=activity&header=false');
     await page.waitForFunction(() => document.querySelector('#loading').hidden);
     checks.builderQueryOptions = await page.locator('#theme').inputValue() === 'dark'

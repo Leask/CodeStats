@@ -17,6 +17,8 @@ upstream API is unavailable. It does not depend on another statistics-card servi
   hours, with independently scaled bars and true percentages.
 - Light, dark and transparent SVGs, plus expandable GitHub README sections.
 - A `/build` card builder with **Copy Markdown** and persistent last-good caching.
+- Optional OpenRouter, Codex and Anthropic API token totals, with independent
+  reporting windows, cache and refresh times. [Setup](docs/AI-USAGE.md).
 
 ## 1. Get the project and configure your accounts
 
@@ -138,6 +140,7 @@ repository content, including other authors, rather than your authored lines.
 - [Deployment, settings and troubleshooting](docs/DEPLOYMENT.md)
 - [README snippets, themes and endpoint options](docs/EMBEDDING.md)
 - [Statistics, language grouping and rank semantics](docs/METRICS.md)
+- [Optional AI token-usage services](docs/AI-USAGE.md)
 - [Differences from GitHub Stats Extended](docs/github-collection-plan.md)
 - [Development and validation](docs/VALIDATION.md)
 - [Implementation contract](docs/CONTRACT.md)
