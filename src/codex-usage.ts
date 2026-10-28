@@ -28,9 +28,15 @@ export function normalizeCodexUsage(
     return {
         observedAt: new Date(at).toISOString(),
         data: {
-            service: 'codex', label: 'Codex',
+            collectionVersion: 2, service: 'codex', label: 'Codex',
             totalTokens: summary.lifetimeTokens as number | null,
-            period: 'Lifetime tokens', since: null,
+            summary: {
+                peakDailyTokens: summary.peakDailyTokens as number | null,
+                longestRunningTurnSec: summary.longestRunningTurnSec as number | null,
+                longestStreakDays: summary.longestStreakDays as number | null,
+                currentStreakDays: summary.currentStreakDays as number | null,
+            },
+            period: 'Lifetime', since: null,
             until: new Date(at).toISOString(),
             scope: 'Official ChatGPT account token activity for the active workspace; '
                 + 'includes Work/Codex activity under the provider accounting rules. '

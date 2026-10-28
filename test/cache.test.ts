@@ -173,6 +173,7 @@ describe('durable last-good snapshots', () => {
         }));
         const settings: Settings = {
             GITHUB_USERNAME: 'test', WAKATIME_USERNAME: 'test',
+            GITHUB_TOKEN: 'isolated-fixture-token',
             DEFAULT_RANGE: 'all_time', FRESH_SECONDS: '21600',
             RETRY_SECONDS: '900',
         };
@@ -189,9 +190,9 @@ describe('durable last-good snapshots', () => {
         const after = await engine.read('all_time', promise => pending.push(promise));
         expect(after.github.data).toEqual(old);
         expect(after.github.lastSuccessAt).toBe(now);
-        expect(after.github.lastError).toContain('server-side GITHUB_TOKEN');
+        expect(after.github.lastError).toBeTruthy();
         expect(after.wakatime.data).toEqual(waka);
-        expect(calls).toBe(0);
+        expect(calls).toBe(1);
         expect([...storage.values.keys()].filter(value =>
             value.startsWith('github:repositories:'))).toEqual([key]);
     });

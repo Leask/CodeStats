@@ -15,20 +15,22 @@ export interface GitHubData {
     profileStatus?: string | null;
     avatarDataUri?: string | null;
     followers: number;
-    publicRepositories: number;
+    publicRepositories?: number;
     repositories?: number;
     privateRepositories?: number;
     visibility?: 'public' | 'all';
     analyzedRepositories: number;
-    stars: number;
-    forks: number;
-    pullRequests: number;
-    mergedPullRequests: number;
-    issues: number;
+    stars?: number;
+    forks?: number;
+    pullRequests?: number;
+    mergedPullRequests?: number;
+    issues?: number;
     languages: Array<{ name: string; bytes: number; color: string }>;
     /** Internal aggregate membership counts; omitted from public JSON. */
     repositoryLanguageCounts?: RepositoryLanguageCount[];
-    totalBytes: number;
+    totalBytes?: number;
+    accessMode?: 'public' | 'token';
+    languageCoverage?: 'complete' | 'unavailable';
     scope: string;
 }
 
@@ -46,22 +48,22 @@ export interface GitHubActivityData {
     username: string;
     visibility: 'public' | 'all';
     scope: string;
-    commits: number;
-    pullRequestsCommented: number;
-    pullRequestsReviewed: number;
-    issuesCommented: number;
-    discussionsStarted: number;
-    discussionsAnswered: number;
-    reviewContributions: number;
-    contributedRepositories: number;
-    allTimeContributedRepositories: number;
-    allTimeContributions: number;
+    commits?: number;
+    pullRequestsCommented?: number;
+    pullRequestsReviewed?: number;
+    issuesCommented?: number;
+    discussionsStarted?: number;
+    discussionsAnswered?: number;
+    reviewContributions?: number;
+    contributedRepositories?: number;
+    allTimeContributedRepositories?: number;
+    allTimeContributions?: number;
     contributionsByYear: Array<{ year: number; contributions: number }>;
-    recentFrom: string;
-    recentTo: string;
-    allTimeFrom: string;
-    allTimeTo: string;
-    organizationCount: number;
+    recentFrom?: string;
+    recentTo?: string;
+    allTimeFrom?: string;
+    allTimeTo?: string;
+    organizationCount?: number;
 }
 
 export interface WakaData {
@@ -74,6 +76,7 @@ export interface WakaData {
     includesToday: boolean;
     rangeLabel: string | null;
     languages: Array<{ name: string; seconds: number; percent: number }>;
+    accessMode?: 'public' | 'oauth';
 }
 
 export interface SourceSnapshot<T> {
@@ -83,6 +86,7 @@ export interface SourceSnapshot<T> {
     lastError: string | null;
     retryAt: string | null;
     status: 'fresh' | 'stale' | 'unavailable';
+    enabled?: boolean;
 }
 
 export interface StatsSnapshot {
@@ -94,6 +98,11 @@ export interface StatsSnapshot {
     aiUsage?: Partial<Record<AIService, SourceSnapshot<AIUsageData>>>;
     range: Range;
     generatedAt: string;
+    selectedSources?: Array<'github' | 'wakatime' | 'codex' | 'openrouter'>;
+    profile?: {
+        mode: 'configured' | 'public';
+        accounts: { github?: string; wakatime?: string; codex?: string };
+    };
 }
 
 export interface LanguageRow {
@@ -109,7 +118,8 @@ export interface LanguageRow {
 
 export interface CardOptions {
     theme: 'dark' | 'light' | 'transparent';
-    view: 'overview' | 'languages' | 'activity';
+    view: 'overview' | 'languages' | 'activity' | 'github' | 'wakatime'
+        | 'codex' | 'openrouter';
     limit: number;
     sort: 'alternating' | 'time' | 'code' | 'name';
     /** Include the profile block; shown unless explicitly disabled. */
@@ -133,7 +143,9 @@ export interface Settings {
     ANTHROPIC_ADMIN_KEY?: string;
     ANTHROPIC_USAGE_SINCE?: string;
     CODEX_USAGE_ENABLED?: string;
+    CODEX_USERNAME?: string;
     CODEX_SYNC_TOKEN?: string;
+    AUTO_REFRESH_SECONDS?: string;
 }
 
 export interface Env extends Settings {

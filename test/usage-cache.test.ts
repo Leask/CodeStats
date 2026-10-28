@@ -19,7 +19,9 @@ class MemoryStorage implements Storage {
 const at = '2026-10-28T12:00:00.000Z';
 const now = Date.parse(at);
 const usage: AIUsageData = {
+    collectionVersion: 3,
     service: 'openrouter', label: 'OpenRouter', totalTokens: 12345,
+    totalPrompts: 100,
     period: 'Last 30 days', since: '2026-09-28T00:00:00.000Z',
     until: '2026-10-28T00:00:00.000Z', scope: 'Account aggregate',
 };
@@ -71,6 +73,54 @@ describe('optional usage snapshots', () => {
         expect(fetchUsage).toHaveBeenCalledTimes(2);
     });
 
+    it.each([
+        { previousVersion: undefined, succeeds: true },
+        { previousVersion: undefined, succeeds: false },
+        { previousVersion: 2 as const, succeeds: true },
+        { previousVersion: 2 as const, succeeds: false },
+    ])('retains OpenRouter data during an upgrade from $previousVersion, success=$succeeds', async ({ previousVersion, succeeds }) => {
+        const storage = new MemoryStorage();
+        const old = { ...usage };
+        old.collectionVersion = previousVersion;
+        delete old.totalPrompts;
+        const key = 'usage:openrouter:v1:last30completed';
+        await storage.put(key, {
+            data: old, lastSuccessAt: at, lastAttemptAt: at,
+            lastError: null, retryAt: null, status: 'fresh',
+        });
+        const current: AIUsageData = {
+            ...usage, totalTokens: 292_849_641, period: 'Last 367 days',
+            totalPrompts: 129_146,
+            since: '2025-10-26T00:00:00.000Z',
+            summary: { longestStreakDays: 120,
+                averageDailyTokens: 292_849_641 / 367,
+                averageWeeklyTokens: 292_849_641 / 367 * 7 },
+        };
+        let finish!: () => void;
+        const upgrading = new Promise<AIUsageData>((resolve, reject) => {
+            finish = () => succeeds ? resolve(current)
+                : reject(new UpstreamError('OpenRouter usage API returned HTTP 503.'));
+        });
+        const cache = new SnapshotCache(storage, {
+            ...loaders, aiUsage: { openrouter: () => upgrading },
+        }, { freshSeconds: 60, retrySeconds: 30, now: () => now,
+            aiUsageKeys: { openrouter: key } });
+        const pending: Promise<unknown>[] = [];
+        const before = await cache.read('all_time', promise => pending.push(promise));
+        expect(before.aiUsage!.openrouter).toMatchObject({
+            status: 'stale', data: old, lastSuccessAt: at,
+        });
+        finish();
+        await Promise.all(pending);
+        const after = await cache.read('all_time', () => {});
+        expect(after.aiUsage!.openrouter).toMatchObject({
+            status: succeeds ? 'fresh' : 'stale',
+            data: succeeds ? current : old, lastSuccessAt: at,
+        });
+        expect(after.aiUsage!.openrouter!.lastError).toBe(succeeds ? null
+            : 'OpenRouter usage API returned HTTP 503.');
+    });
+
     it('keeps imported observation age across reads and never refreshes it by visiting', async () => {
         const storage = new MemoryStorage();
         const cache = new SnapshotCache(storage, loaders, {
@@ -117,6 +167,36 @@ describe('optional usage snapshots', () => {
         await cache.read('all_time', () => {});
         expect(reader).toHaveBeenCalledTimes(1);
     });
+
+    it('upgrades a fresh total-only Codex snapshot without dropping its saved value', async () => {
+        const storage = new MemoryStorage();
+        const current = normalizeCodexUsage(payload(), now).data;
+        const old = { ...current };
+        delete old.summary;
+        delete old.collectionVersion;
+        await storage.put('usage:codex:v1', {
+            data: old, lastSuccessAt: at, lastAttemptAt: at,
+            lastError: null, retryAt: null, status: 'fresh',
+        });
+        let finish!: (value: AIUsageData) => void;
+        const refreshing = new Promise<AIUsageData>(resolve => { finish = resolve; });
+        const cache = new SnapshotCache(storage, {
+            ...loaders, aiUsage: { codex: () => refreshing },
+        }, { freshSeconds: 60, retrySeconds: 30, now: () => now });
+        const pending: Promise<unknown>[] = [];
+        const before = await cache.read('all_time', promise => pending.push(promise));
+        expect(before.aiUsage!.codex).toMatchObject({ data: old, status: 'stale' });
+        finish(current);
+        await Promise.all(pending);
+        const after = await cache.read('all_time', () => {});
+        expect(after.aiUsage!.codex).toMatchObject({
+            status: 'fresh', data: { collectionVersion: 2,
+                totalTokens: 131320846898,
+                summary: { peakDailyTokens: 5262475191,
+                    longestRunningTurnSec: 203454,
+                    longestStreakDays: 109, currentStreakDays: 82 } },
+        });
+    });
 });
 
 describe('Codex aggregate validation and import authorization', () => {
@@ -140,6 +220,11 @@ describe('Codex aggregate validation and import authorization', () => {
             accessToken: 'fixture-private',
         }, now);
         expect(result.data.totalTokens).toBeNull();
+        expect(result.data.period).toBe('Lifetime');
+        expect(result.data.summary).toEqual({
+            peakDailyTokens: 5262475191, longestRunningTurnSec: 203454,
+            longestStreakDays: 109, currentStreakDays: 82,
+        });
         expect(JSON.stringify(result)).not.toContain('fixture-private');
         expect(result.observedAt).toBe(at);
     });

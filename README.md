@@ -1,26 +1,41 @@
 # CodeStats
 
-Deploy your own GitHub + WakaTime profile card, then paste one Markdown snippet
-into your GitHub README. Run the same application on **Node.js** or
-**Cloudflare Workers**.
+Your **GitHub, WakaTime, Codex and OpenRouter** activity in one profile card.
+Run it on **Node.js** or **Cloudflare Workers**, then paste one Markdown snippet
+into your GitHub README.
 
 [![CodeStats](https://codestats.leask.workers.dev/)](https://github.com/Leask/CodeStats)
 
-CodeStats reads the official GitHub and WakaTime APIs directly. Each deployment
-serves one configured profile and keeps its last successful statistics when an
-upstream API is unavailable. It does not depend on another statistics-card service.
+CodeStats collects its own statistics and keeps the last successful snapshot
+for each source. It does not depend on another statistics-card service.
+One deployment can serve a configured profile and public profiles selected by
+username. Tokens stay on the server; the builder accepts names and IDs only.
 
-- GitHub avatar, name, bio/status and reference-style rank estimate.
-- Coding time, calendar contributions, repositories, indexed commits, PRs,
-  issues, followers and owned-repository stars.
-- Combined language table: deduplicated repo counts, GitHub bytes and WakaTime
-  hours, with independently scaled bars and true percentages.
-- Light, dark and transparent SVGs, plus expandable GitHub README sections.
-- A `/build` card builder with **Copy Markdown** and persistent last-good caching.
-- Optional OpenRouter, Codex and Anthropic API token totals, with independent
-  reporting windows, cache and refresh times. [Setup](docs/AI-USAGE.md).
+## Four sources, one card
 
-## 1. Get the project and configure your accounts
+| Source | What the card shows | Collection and reporting scope |
+| --- | --- | --- |
+| **GitHub** | Profile, repositories, commits, PRs, issues, followers and stars; full mode adds contributions and language bytes | Username-only public REST mode or owner-bound token mode; current repository bytes are not personally authored lines |
+| **WakaTime** | Coding hours and language time | Named public statistics first; optional owner-verified OAuth fallback for the same range |
+| **Codex** | Total tokens, peak tokens, longest task, longest streak and current streak | Configured local account/aggregate sync; a public ID alone provides a profile link, not anonymous usage |
+| **OpenRouter** | Total tokens, tokens/day, tokens/week, total prompts and longest streak | One account-wide analytics query for the last 367 completed UTC days by default |
+
+GitHub and WakaTime form the language comparison. Codex and OpenRouter add
+independent usage rows below it when configured. You can start with GitHub and
+WakaTime, then add either usage source; unconfigured usage rows stay hidden.
+Totals from different providers are never added together.
+
+The card includes a GitHub avatar with a rank border, eight overview metrics,
+nine grouped languages plus Others, per-language repository counts, and separate
+GitHub/WakaTime percentage scales. Light, dark and transparent styles work with
+GitHub README images. `/build` provides the preview, four provider status cards,
+language/activity/usage details and Markdown generator. Disabled usage sources
+remain visible there as **Not enabled**, with a setup link.
+
+An additional [Anthropic API adapter](docs/AI-USAGE.md#advanced-anthropic-api)
+is available as an opt-in extension, separate from the four-source setup.
+
+## 1. Get the project
 
 Use Node.js **26 or newer**, npm and Git. A Cloudflare account is needed only
 for the Worker deployment option.
@@ -33,53 +48,73 @@ npm ci
 
 You can also fork the repository first and clone your fork.
 
-Create a GitHub **classic personal access token** belonging to the GitHub account
-you want to display, with `repo`, `read:user` and `read:org` scopes. An existing
-OAuth access token with these scopes also works. CodeStats makes read requests;
-the classic `repo` scope itself is broader than read-only. The current full-mode
-collector checks these declared scopes, so a fine-grained PAT is not a drop-in
-replacement. Organization SSO and access policies still apply.
+## 2. Configure your sources
 
-For WakaTime, publish the statistics range you want to display; **all-time** is
-the default. A public range needs no WakaTime token. Private/unpublished ranges
-need an optional read-stats OAuth token. A heartbeat ingestion API key is not a
-replacement. See [credentials and permissions](docs/DEPLOYMENT.md#credentials).
+Replace username placeholders with **your own GitHub and WakaTime IDs**. They
+can be different. Credentials belong in ignored local files or platform secrets,
+not in the builder, image URLs or README.
 
-Replace the username placeholders with **your own GitHub and WakaTime IDs**.
-They can be different. Keep real tokens in ignored local files or platform secrets.
+| Source | Required configuration | Setup |
+| --- | --- | --- |
+| GitHub | Username alone for public aggregates; add the account's `GITHUB_TOKEN` for full coverage | [Permissions](docs/DEPLOYMENT.md#credentials) |
+| WakaTime | Published username/range; optional owner OAuth token for fallback or token-only setup | [Permissions](docs/DEPLOYMENT.md#credentials) |
+| Codex | Optional `CODEX_USERNAME` bare ID for a profile link; enable local login/Worker aggregate sync for usage | [Codex setup](docs/AI-USAGE.md#codex) |
+| OpenRouter | `OPENROUTER_API_KEY` containing a **Management key** | [OpenRouter setup](docs/AI-USAGE.md#openrouter) |
 
-## 2. Choose a runtime
+For full GitHub visibility, use a classic personal access token for the displayed
+account with `repo`, `read:user` and `read:org`, or an OAuth token declaring those
+scopes. CodeStats performs read operations, but classic `repo` permission itself
+is broader than read-only. The current full-mode collector checks the declared
+scopes, so a fine-grained PAT is not a drop-in replacement. Organization SSO and
+access policies still apply.
+
+A published WakaTime range needs no token. For the best unattended setup, provide
+the username and an OAuth token with `email` and `read_stats.languages` (or
+`read_stats`): public data wins, with owner-verified same-range fallback.
+Token-only setup resolves the token's owner before caching. Public and OAuth
+statistics can use different account preferences; one is not inherently richer.
+A heartbeat ingestion API key does not grant that read access.
+An OpenRouter inference key likewise does not replace a Management key.
+Codex uses the existing local login; do not copy its login tokens to the server.
+
+## 3. Choose a runtime
 
 ### Node.js
 
 ```sh
 cp .env.example .env
-# Edit .env: set both usernames and GITHUB_TOKEN.
+# Edit .env: set the names and optional credentials for your sources.
+# Enable Codex and add the OpenRouter Management key when wanted.
 chmod 600 .env
 npm start
 ```
 
 Open [the card builder](http://127.0.0.1:8791/build). The root URL serves the
-transparent SVG directly. Node uses a local SQLite
-cache under `.data/`; no external database is required. For a public service,
-keep that directory persistent and put the server behind an HTTPS reverse proxy.
+transparent SVG directly. Node uses a local SQLite cache under `.data/`; no
+external database is required. Preserve that directory when restarting or
+redeploying, and use an HTTPS reverse proxy for a public service.
 See [Node hosting](docs/DEPLOYMENT.md#nodejs).
+
+For local Codex statistics, the service account running Node must already be
+signed in to the Codex CLI. Setting the flag alone does not sign in or provide
+account access. [Codex setup](docs/AI-USAGE.md#codex).
 
 ### Cloudflare Workers
 
 Edit `wrangler.jsonc`: choose your Worker `name`, and set `vars.GITHUB_USERNAME`
-and `vars.WAKATIME_USERNAME` to your own accounts. Keep the existing Durable
-Object binding and migration.
+and `vars.WAKATIME_USERNAME`. Keep the existing Durable Object binding and
+migration. To include Codex, also set the runtime variable
+`CODEX_USAGE_ENABLED=true` and follow the aggregate sync setup below.
 
 ```sh
 cp .dev.vars.example .dev.vars
-# Edit .dev.vars: set GITHUB_TOKEN; add WAKATIME_TOKEN only if needed.
+# Edit .dev.vars: set GITHUB_TOKEN and any optional source secrets.
 chmod 600 .dev.vars
 npm run dev:worker
 ```
 
-Open [http://127.0.0.1:8791/build](http://127.0.0.1:8791/build) to review it locally. Stop
-that process before switching runtimes on the same port. To publish:
+Open [http://127.0.0.1:8791/build](http://127.0.0.1:8791/build) to review it locally.
+Stop that process before switching runtimes on the same port. To publish:
 
 ```sh
 npx wrangler login
@@ -87,60 +122,101 @@ npm run deploy -- --secrets-file .dev.vars
 ```
 
 This explicitly uploads the secrets-only file as Worker secrets. Ordinary
-`npm run deploy` does **not** automatically upload local `.dev.vars` values.
+`npm run deploy` does **not** automatically upload `.dev.vars` values.
 Wrangler creates the configured SQLite Durable Object through its migration;
 no separate KV, D1 database, cron or GitHub Actions workflow is needed.
 See [Cloudflare deployment](docs/DEPLOYMENT.md#cloudflare-workers).
 
-When deploying through Workers Builds, add `GITHUB_TOKEN` to the deployed
-Worker's **Settings → Variables and Secrets** as a **Secret**. Build secrets
-alone do not create the runtime binding. See [the dashboard setup](docs/DEPLOYMENT.md#workers-builds-dashboard).
+Workers cannot run your local Codex CLI. Configure a dedicated `CODEX_SYNC_TOKEN`
+on the Worker and local sync machine, then send the account summary from a
+machine already signed in to Codex:
 
-## 3. Copy the snippet into your GitHub README
+```sh
+npm run sync:codex -- https://your-worker.example
+```
 
-1. Open `/build` on your deployed public HTTPS origin.
-2. Check the **Public HTTPS URL** field in **Add to your GitHub README**.
-3. Choose your range/order, then click **Copy Markdown**.
-4. Paste it into a repository README. For your profile, use the root `README.md`
+This transfers only the numeric/null summary and observation time, not your
+Codex credentials or conversations. It is a manual command and creates no timer.
+See [the full Codex bridge setup](docs/AI-USAGE.md#cloudflare-worker).
+
+For Workers Builds, add provider secrets to the deployed Worker's
+**Settings → Variables and Secrets** as **Secrets**. Build secrets alone do not
+create runtime bindings. See [dashboard setup](docs/DEPLOYMENT.md#workers-builds-dashboard).
+
+## 4. Review and embed
+
+1. Open `/build` on your deployment and inspect **Source status**. GitHub has
+   separate repository and activity datasets within the same provider.
+2. Choose **Account mode**: configured accounts or public usernames/IDs. Enter
+   bare IDs for public mode, select source checkboxes, then the range and
+   appearance. Overview stays the default; four source views are also available.
+3. Review the card and expandable data tables. A missing statistic is a dash,
+   while saved data retains its original successful timestamp.
+4. In **Add to your GitHub README**, enter your public HTTPS origin and click
+   **Copy Markdown**.
+5. Paste the snippet into a README. For your profile, use the root `README.md`
    in your public `YOUR_GITHUB_USERNAME/YOUR_GITHUB_USERNAME` repository.
 
-The default snippet is one linked image, with no URL parameters needed. Replace
-the example domain below with your deployment:
+The default snippet is one linked transparent image, with no URL parameters:
 
 ```markdown
 [![CodeStats](https://stats.example.com/)](https://github.com/Leask/CodeStats)
 ```
 
-Use your own public endpoint, not `localhost` or an authenticated preview URL.
-Your token never belongs in the image URL or README. GitHub renders the SVG as
-an image; expand/collapse uses native `<details>`, not embedded JavaScript.
-The transparent card adapts its palette where the viewer supports it. Choose
-explicit light/dark styles or enable the builder's optional expandable cards
-when needed. The Markdown generator remains available even if statistics fail
-to load.
-[More Markdown examples and options](docs/EMBEDDING.md).
+Replace the example domain with your deployment. Localhost, private-network and
+login-protected URLs cannot serve public README visitors. GitHub renders the SVG
+as an image; expandable sections use native `<details>`, not embedded JavaScript.
+The Markdown generator works even if the first statistics fetch fails.
+[More examples and options](docs/EMBEDDING.md).
 
-## Cache and data scope
+Public profiles need no preconfiguration:
 
-The default cache refresh interval is six hours. Visitors receive saved data
-while a due refresh runs. Failed refreshes keep the previous values and success
-timestamps, with a default fifteen-minute retry cooldown. Refreshes are triggered
-by requests; there is no background timer. A new installation needs one successful
-fetch before it has fallback data. GitHub's image proxy can add its own delay.
+```markdown
+[![CodeStats](https://stats.example.com/?github=octocat&wakatime=your-wakatime-id)](https://github.com/Leask/CodeStats)
+```
 
-By default, repository totals and language bytes include visible owned,
+Any explicit account parameter selects **public mode**, even if it matches the
+configured owner. Omitted accounts, private snapshots, local Codex usage and
+provider credentials are never inherited. `sources=github,codex` selects a subset;
+without account parameters it selects from the configured profile. Public Codex
+usage remains unavailable behind its login requirement, and OpenRouter requires
+the deployment's Management key. [Profiles and source views](docs/EMBEDDING.md).
+
+## Cache, freshness and privacy
+
+Every source keeps its own last successful snapshot. The default refresh interval
+is six hours; a failed refresh preserves previous values and timestamps, with a
+fifteen-minute retry cooldown. Public username profiles collect **on demand only**;
+visiting one never enrolls it in a background schedule. Configured profiles can
+optionally refresh on a Node process interval or a separately configured Worker
+Cron Trigger. Both are opt-in; see [refresh options](docs/DEPLOYMENT.md#optional-background-refresh).
+A first installation needs one successful fetch before it can
+serve fallback data. Codex imports keep the **observation time**, rather than
+becoming fresh when a visitor loads the image. GitHub's image proxy can add its
+own cache delay.
+
+`fresh` means a source's saved observation uses the current collection format
+and is within the configured cache window.
+It does not mean that all providers have the same period or that an upstream API
+covers every historical action. `stale` means saved data remains usable but is due
+for refresh; `unavailable` means there is no usable saved observation yet.
+
+In token mode, GitHub repository totals and language bytes include visible owned,
 collaborator and organization repositories, including forks. **Stars include
-only owned repositories.** Personal activity includes private work visible to
-your token. Public output contains these aggregate counts plus your public
-profile, not private repository names or source code. GitHub bytes measure current
-repository content, including other authors, rather than your authored lines.
+only owned repositories.** Public output contains aggregate statistics and your
+public profile, not private repository names, source code or provider secrets.
+Review the visible aggregate counts before embedding them publicly.
+Username-only GitHub has a smaller public REST scope and no language-byte or
+calendar totals; unavailable values remain dashes, not zeros. Anonymous API limits
+are shared by the service's outgoing IP, so public profiles benefit from cache reuse.
+See [metric definitions](docs/METRICS.md) and [usage scopes](docs/AI-USAGE.md).
 
 ## Documentation
 
 - [Deployment, settings and troubleshooting](docs/DEPLOYMENT.md)
 - [README snippets, themes and endpoint options](docs/EMBEDDING.md)
 - [Statistics, language grouping and rank semantics](docs/METRICS.md)
-- [Optional AI token-usage services](docs/AI-USAGE.md)
+- [Codex and OpenRouter usage setup](docs/AI-USAGE.md)
 - [Differences from GitHub Stats Extended](docs/github-collection-plan.md)
 - [Development and validation](docs/VALIDATION.md)
 - [Implementation contract](docs/CONTRACT.md)
@@ -153,9 +229,10 @@ and its predecessor,
 [GitHub Readme Stats](https://github.com/anuraghazra/github-readme-stats).
 Their work inspired the design and development of CodeStats.
 
-CodeStats independently rebuilds the statistics collection and aggregation
-engine, persistent cache, Node.js/Cloudflare Workers runtimes and SVG rendering.
-It reads the official GitHub and WakaTime APIs directly.
+CodeStats independently rebuilds the collection and aggregation engine,
+persistent cache, Node.js/Cloudflare Workers runtimes and SVG rendering.
+GitHub, WakaTime and OpenRouter use their own APIs; Codex statistics use the
+official local account-usage method and optional aggregate bridge.
 
 The reference ranking formula and bundled icon assets retain their original
 attributions and licenses in [third_party](third_party/).

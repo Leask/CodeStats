@@ -2,6 +2,38 @@
 
 [Back to CodeStats](../README.md) · [Reference comparison](github-collection-plan.md)
 
+## Four sources and their scopes
+
+| Source | Main measurements | Reporting period |
+| --- | --- | --- |
+| GitHub | Profile, repository counts/bytes, contributions and social/activity counts | Current repository snapshot plus metric-specific recent/lifetime API aggregates |
+| WakaTime | Coding seconds and time by language | Selected all-time, 7-day or 30-day range |
+| Codex | Total/peak tokens, longest task, longest/current streak | Official account/workspace lifetime summary as of its observation time |
+| OpenRouter | Total tokens, average tokens/day and tokens/week, request count and longest streak | Last 367 completed UTC days by default, or a shorter explicit interval |
+
+Public username/ID requests use isolated anonymous collection, even when an ID
+matches the configured owner. `sources` selects a provider subset; the focused
+`github`, `wakatime`, `codex` and `openrouter` views retain those scopes and
+periods. Missing fields are unknown (`—`); a verified zero remains zero.
+
+These are four providers, not four interchangeable counters. GitHub has two
+independently cached datasets—repositories/profile and personal activity—within
+one source. A fresh repository snapshot does not guarantee fresh activity data.
+Check both dataset statuses in the builder when assessing GitHub coverage.
+
+The eight overview values are coding hours, calendar contributions,
+repositories, commits, PRs, issues, followers and owned-repository stars.
+Coding hours comes from WakaTime; the other seven come from GitHub. The
+**Commits** label represents GitHub search-indexed authored commits, not a scan
+of every branch or an additions/deletions count.
+
+Codex and OpenRouter have separate rows below the language table when enabled.
+Their totals are not combined with each other or with coding time. Selecting a
+WakaTime range never changes GitHub, Codex or OpenRouter reporting windows.
+[Usage definitions and setup](AI-USAGE.md).
+
+## GitHub and WakaTime language data
+
 **WakaTime:** tracked coding seconds for the selected range. Sorting uses exact
 seconds; display rounding is balanced as described below. The denominator
 includes `Other`, so the total shown is `total_seconds_including_other_language`.
@@ -12,6 +44,16 @@ By default, include all token-visible OWNER, COLLABORATOR and ORGANIZATION_MEMBE
 repositories, including forks and archived repositories. These are whole-repository
 bytes, including other authors' code. No commit history, additions/deletions,
 authorship attribution, SHA ledger or background backfill is collected.
+
+That byte inventory requires **token mode**. Username-only public REST mode
+collects the public profile, complete owned-public metadata within ten pages of
+100 repositories, and authored Search totals. It includes selected owned forks
+but does not enumerate organization/collaborator inventories, language endpoints
+or commits. Repository `size` and primary-language labels are not language bytes.
+Language bytes, language-repository unions, calendar/review totals and rank inputs
+are therefore unavailable in public mode. Above the metadata cap, selected count,
+stars and forks are unknown. Partial searches, changing inventories and transient
+failures do not become successful smaller totals.
 
 Repository counts use that selected scope. Stars count only selected repositories
 owned by the configured user, including their own forks when enabled. Stars on
@@ -31,6 +73,8 @@ The default third setting is `true`: include owned repositories in recent/lifeti
 contributed-repository counts. It does not attribute the whole repository to you.
 GitHub's activity counts also include organization and external open-source work
 that its APIs make visible to your token.
+
+## Language selection and grouping
 
 The default card and expanded table show nine named groups plus **Others**.
 After grouping, selection alternates descending GitHub bytes and WakaTime
@@ -89,6 +133,8 @@ percentage denominator is restricted to the selected groups. Raw source JSON/cac
 original language, value and upstream percentage. The synthetic Others has a
 GitHub remainder share, unlike WakaTime's original unclassified Other alone.
 
+## Percentages and bar scales
+
 Displayed percentages are balanced using integer tenths (SVG) or hundredths
 (preview table): Others is100% minus the displayed named shares, so each column
 adds to exactly100% at its shown precision. In the rare case that rounding the
@@ -99,11 +145,11 @@ Missing, empty or incomplete source shares are never filled to100%.
 
 The two bar columns scale independently. Each full track represents that column's
 largest displayed **unrounded** source share (including Others), rounded upward
-to the nearest 0.1 percentage point. For example, `GITHUB · CODE BYTES · SCALE
-35.8%` means the full track represents35.8% of all GitHub bytes: a17.9% language
+to the next 10 percentage points. For example, a 39.7% maximum uses
+`GITHUB · CODE BYTES · SCALE 40%`, while a 42.1% maximum uses scale 50%. At scale 40%, a 20% language
 occupies half the track. WakaTime has its own scale and denominator. The displayed
 row percentages are the true full-source shares, not the normalized bar lengths.
-Empty sources have scale0%; unavailable sources show a dash.
+Empty sources have scale 0%; unavailable sources show a dash.
 
 The right SVG column heading is `WAKATIME · CODE TIME · SCALE …`, paired with
 `GITHUB · CODE BYTES · SCALE …` on the left. Its tooltip shows the saved WakaTime span as
@@ -113,13 +159,28 @@ preferred; a published `since` date uses the saved source-success timestamp as
 its cutoff, so a stale card does not keep aging. Fixed7/30-day ranges have
 fallback labels; an unknown all-time span uses `Recent activity` in the tooltip.
 
-The compact SVG footer shows a clock followed by `GitHub: 2 hr, 8 mins ago |
-WakaTime: 4 hr, 58 mins ago`, based on each
-last successful refresh at card-generation time. Zero hour/minute units are
-omitted; ages under one minute say `just now`. Missing refreshes say
-`not refreshed`. The right-hand GitHub mark and `Power by
-github.com/Leask/CodeStats` link to this repository. Absolute timestamps and
-source semantics remain in accessible SVG metadata and preview details.
+## Refresh times and source state
+
+The footer lists GitHub, WakaTime, Codex and OpenRouter in that order, omitting
+usage services that are not enabled. Each age refers to that source's last
+successful observation. Codex imports retain their original observation time;
+rendering a card does not refresh them. Source windows remain independent.
+
+Ages omit zero hour/minute units and say `just now` below one minute. The footer
+uses compact forms such as `2h 8m ago` when needed and wraps to additional lines
+rather than shrinking the text. A configured source without an observation says
+`not refreshed`. The right-hand GitHub mark and
+`Power by github.com/Leask/CodeStats` link to this repository.
+
+The builder keeps four primary provider cards visible, including `Not enabled`
+for unconfigured Codex/OpenRouter integrations. GitHub's repository and activity
+statuses appear within the same provider card. `fresh` means a current-format
+snapshot is within the configured freshness window, not that every possible
+historical event was collected. `stale` means saved data is due for refresh or
+requires a current collection format; `unavailable` means no usable snapshot.
+The builder also shows errors, absolute times and detailed reporting scope.
+
+## Bundled icons
 
 Language logos use a bundled subset of [Simple Icons](https://simpleicons.org/)
 16.36.0. The SVG card and HTML table embed the same local vector paths; no
@@ -129,7 +190,13 @@ and unknown languages use neutral local symbols. Artwork provenance, original
 licenses and source links are in [third-party notices](../third_party/simple-icons/NOTICE.md).
 Long serialized path lines in icon-data.json preserve upstream vector data.
 
-Activity includes lifetime authored/merged PRs and issues, search-indexed
+Provider logos use a bundled [Lobe Icons](../third_party/lobe-icons/NOTICE.md)
+subset. UI symbols use bundled Octicons. These assets require no external icon
+requests and retain their own notices and licenses.
+
+## GitHub activity and rank
+
+In full token mode, activity includes lifetime authored/merged PRs and issues, search-indexed
 authored commits, distinct non-self-authored PRs reviewed/commented and issues
 commented, discussions started and accepted answers. Annual contribution
 calendar totals are collected for every reported contribution year, with
@@ -143,7 +210,7 @@ date intervals and unresolved truncation fails closed.
 Commit search covers indexed default branches. Calendar contributions follow
 GitHub eligibility rules and differ from commit counts. Search scope limits,
 deleted records and lost access prevent claiming every historical action.
-Counts and periods remain explicitly labeled. The footer additionally
+Counts and periods remain explicitly labeled. The upper-right trophy block
 shows the reference project's weighted rank estimate, using lifetime indexed
 commits, authored PRs/issues, recent review contributions, owned stars and
 followers. It is a heuristic percentile rather than a measured global leaderboard.
@@ -154,8 +221,15 @@ ring: a full, dim track underneath
 an arc showing `100 - percentile`, starting at the top and moving clockwise.
 The arc animates once and respects reduced-motion preferences. Without rank data,
 only the dim track is shown; `header=false` also hides the avatar and ring.
+## Card layout and typography
+
+The card uses 32px outer padding. The avatar's outer border aligns with the
+upper-right trophy row; the trophy and project credit share the right edge.
+When the profile header is hidden, its rank lane retains a 20px gap before the
+overview numbers. Section content uses shared 20px padding.
+
 Card typography uses three fixed sizes: 27px for the name and metric values,
-13px for language names, and 11px for labels, descriptions and footer text.
+13px for language/provider names, and 11px for labels, descriptions and footer text.
 Long names are shortened and large metric values use compact notation, with
 the full counts retained in tooltips. Long footers wrap instead of shrinking.
 The public profile bio takes precedence over a public, unexpired status message;
@@ -163,8 +237,21 @@ organization-only status messages are never published. Small public GitHub avata
 are embedded in the cached SVG data, so README images need no nested remote fetch.
 See [the collection implementation and permission notes](github-collection-plan.md).
 
-WakaTime **all-time** is the default. If a different range is not published
-or authorized, it remains unavailable without substituting all-time data. For other/private ranges, configure an optional
-server-side `WAKATIME_TOKEN` OAuth token with `read_stats.languages`. Heartbeat
-API keys are not used for read access. The API's `rangeLabel`, `includesToday`
-and any supplied start/end values are preserved; missing dates are not invented.
+## WakaTime ranges
+
+WakaTime **all-time** is the default. Named profiles first request the exact range
+anonymously. A complete public result wins, even if OAuth is configured. An
+inaccessible, pending or invalid result can use a same-owner OAuth fallback for
+the **same range**; no all-time/7-day/30-day substitution or payload mixing occurs.
+Rate limiting and transient/redirect failures retain last-good data.
+
+OAuth needs `read_stats.languages` (or `read_stats`) plus `email` for the
+`/users/current` ownership check; its raw profile/email payload is discarded.
+Only the resolved account identity is retained. Token-only
+configuration resolves that identity before choosing the cache namespace.
+Public URL profiles cannot borrow this token. Public and OAuth settings may
+differ in timeout, tracked activity and visibility; the public result is not
+inherently richer and CodeStats does not choose whichever total is larger.
+Heartbeat API keys are not used for read access. The API's `rangeLabel`,
+`includesToday` and supplied start/end values are preserved; missing dates are
+not invented. [WakaTime API definitions](https://wakatime.com/developers).

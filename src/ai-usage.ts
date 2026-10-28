@@ -2,13 +2,23 @@ import { UpstreamError } from './errors';
 import type { Fetcher } from './types';
 
 export interface AIUsageData {
+    collectionVersion?: 2 | 3;
     service: 'openrouter' | 'anthropic' | 'codex';
     label: string;
     totalTokens: number | null;
+    totalPrompts?: number | null;
     period: string;
     since: string | null;
     until: string | null;
     scope: string;
+    summary?: {
+        averageDailyTokens?: number | null;
+        averageWeeklyTokens?: number | null;
+        peakDailyTokens?: number | null;
+        longestRunningTurnSec?: number | null;
+        longestStreakDays?: number | null;
+        currentStreakDays?: number | null;
+    };
 }
 
 export interface AIUsageEnv {
@@ -31,21 +41,23 @@ function object(value: unknown, label: string): JsonObject {
     return value as JsonObject;
 }
 
-function count(value: unknown, label: string, strings = false): number {
+function count(value: unknown, label: string, strings = false,
+    kind = 'token'): number {
     const numeric = strings && typeof value === 'string' && /^\d+$/.test(value)
         ? Number(value) : value;
     if (typeof numeric !== 'number' || !Number.isSafeInteger(numeric)
         || numeric < 0) {
-        throw new UpstreamError(`${label} returned an invalid token count.`);
+        throw new UpstreamError(`${label} returned an invalid ${kind} count.`);
     }
     return numeric;
 }
 
-function add(left: number, right: number, label: string): number {
-    return count(left + right, label);
+function add(left: number, right: number, label: string, kind = 'token'): number {
+    return count(left + right, label, false, kind);
 }
 
-function window(since: string | undefined, now: Clock, daily = false) {
+function window(since: string | undefined, now: Clock, daily = false,
+    days = 30, label = 'Anthropic') {
     const current = typeof now === 'function' ? now() : now;
     if (!Number.isFinite(current) || current < Date.UTC(2000, 0, 1)
         || current > Date.UTC(2200, 0, 1)) {
@@ -54,7 +66,7 @@ function window(since: string | undefined, now: Clock, daily = false) {
     const configured = since?.trim();
     const until = configured && !daily ? Math.floor(current / 1000) * 1000
         : Math.floor(current / DAY_MS) * DAY_MS;
-    let from = until - 30 * DAY_MS;
+    let from = until - days * DAY_MS;
     if (configured) {
         if (!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)?$/
             .test(configured)) {
@@ -68,14 +80,14 @@ function window(since: string | undefined, now: Clock, daily = false) {
             throw new UpstreamError('AI usage start date is invalid.');
         }
         if (daily && from % DAY_MS !== 0) {
-            throw new UpstreamError('Anthropic usage start must be UTC midnight.');
+            throw new UpstreamError(`${label} usage start must be UTC midnight.`);
         }
     }
     return {
         since: new Date(from).toISOString(),
         until: new Date(until).toISOString(),
         period: configured ? `Since ${new Date(from).toISOString().slice(0, 10)}`
-            : 'Last 30 days',
+            : `Last ${days} days`,
     };
 }
 
@@ -159,7 +171,7 @@ function client(label: string, fetcher: Fetcher) {
     };
 }
 
-/** One server-side aggregate, never a scan of individual generations. */
+/** One daily aggregate query, never a scan of individual generations. */
 export async function fetchOpenRouterUsage(
     env: AIUsageEnv,
     fetcher: Fetcher = fetch,
@@ -168,7 +180,14 @@ export async function fetchOpenRouterUsage(
     if (!env.OPENROUTER_API_KEY?.trim()) {
         throw new UpstreamError('Configure an OpenRouter Management key for usage.');
     }
-    const range = window(env.OPENROUTER_USAGE_SINCE, now);
+    const range = window(env.OPENROUTER_USAGE_SINCE, now, true, 367,
+        'OpenRouter');
+    const since = Date.parse(range.since);
+    const until = Date.parse(range.until);
+    const days = (until - since) / DAY_MS;
+    if (days > 367) {
+        throw new UpstreamError('OpenRouter usage start exceeds the 367-day query limit.');
+    }
     const request = client('OpenRouter', fetcher);
     const envelope = await request('https://openrouter.ai/api/v1/analytics/query', {
         method: 'POST',
@@ -177,24 +196,65 @@ export async function fetchOpenRouterUsage(
             Accept: 'application/json', 'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            metrics: ['tokens_total'],
+            metrics: ['tokens_total', 'request_count'],
+            granularity: 'day',
             time_range: { start: range.since, end: range.until },
+            order_by: { field: 'date', direction: 'asc' },
+            limit: 1000,
         }),
     });
     const data = object(envelope.data, 'OpenRouter');
     const metadata = object(data.metadata, 'OpenRouter');
-    if (!Array.isArray(data.data) || data.data.length !== 1
-        || metadata.truncated !== false || metadata.row_count !== 1
+    if (!Array.isArray(data.data) || data.data.length > days
+        || metadata.truncated !== false || metadata.row_count !== data.data.length
         || (data.warnings !== undefined
             && (!Array.isArray(data.warnings) || data.warnings.length > 0))) {
         throw new UpstreamError('OpenRouter returned partial usage statistics.');
     }
-    const totalTokens = count(object(data.data[0], 'OpenRouter').tokens_total,
-        'OpenRouter', true);
+    const daily = new Map<number, number>();
+    let totalTokens = 0;
+    let totalPrompts = 0;
+    for (const value of data.data) {
+        const row = object(value, 'OpenRouter');
+        // The API returns dates without a timezone. Accept only unambiguous UTC
+        // days, including an explicit midnight ISO representation.
+        const date = row.date__day;
+        if (typeof date !== 'string'
+            || !/^\d{4}-\d{2}-\d{2}(?:T00:00:00(?:\.000)?Z)?$/.test(date)) {
+            throw new UpstreamError('OpenRouter returned an invalid daily usage date.');
+        }
+        const day = Date.parse(date);
+        if (!Number.isFinite(day) || day < since || day >= until
+            || new Date(day).toISOString().slice(0, 10) !== date.slice(0, 10)
+            || daily.has(day)) {
+            throw new UpstreamError('OpenRouter returned an invalid or repeated usage day.');
+        }
+        const tokens = count(row.tokens_total, 'OpenRouter', true);
+        const requests = count(row.request_count, 'OpenRouter', true, 'request');
+        daily.set(day, tokens);
+        totalTokens = add(totalTokens, tokens, 'OpenRouter');
+        totalPrompts = add(totalPrompts, requests, 'OpenRouter', 'request');
+    }
+    let streak = 0;
+    let longestStreakDays = 0;
+    for (let day = since; day < until; day += DAY_MS) {
+        // Sparse aggregate responses omit inactive days. They still belong to
+        // the reporting interval and break streaks rather than extending them.
+        streak = (daily.get(day) ?? 0) > 0 ? streak + 1 : 0;
+        longestStreakDays = Math.max(longestStreakDays, streak);
+    }
+    const averageDailyTokens = totalTokens / days;
     return {
-        service: 'openrouter', label: 'OpenRouter', totalTokens, ...range,
+        collectionVersion: 3,
+        service: 'openrouter', label: 'OpenRouter', totalTokens, totalPrompts, ...range,
         scope: 'Account-wide API tokens across all keys and workspaces; '
-            + 'the configured reporting interval only.',
+            + `${days} completed UTC days, including inactive days in averages; `
+            + 'the reporting interval only, not lifetime. '
+            + 'Prompts count API requests, not input tokens or individual messages.',
+        summary: {
+            averageDailyTokens, averageWeeklyTokens: averageDailyTokens * 7,
+            longestStreakDays,
+        },
     };
 }
 

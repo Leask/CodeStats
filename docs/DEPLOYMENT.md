@@ -1,251 +1,416 @@
 # Deploy your own CodeStats
 
-[Back to CodeStats](../README.md) · [Add the card to GitHub](EMBEDDING.md)
+[Back to CodeStats](../README.md) · [README embedding](EMBEDDING.md) · [Usage details](AI-USAGE.md)
 
-One deployment serves one configured GitHub/WakaTime profile. Visitors cannot
-switch accounts with a `username` query parameter. Deploy a separate instance
-for another profile. Both runtimes use the same collectors, SVG and cache policy.
+One deployment combines **GitHub, WakaTime, Codex and OpenRouter** for its
+configured profile and optional username-selected public profiles.
+Node.js and Cloudflare Workers share collectors, rendering,
+routes and cache policy. Enable the services you use; Codex and OpenRouter are
+optional, and missing usage data is never replaced with a fabricated zero.
+Public IDs use `github`, `wakatime` and `codex` parameters, not a generic
+`username`. Any explicit ID selects isolated anonymous mode; omitted owner
+accounts and credentials are not inherited, even when the ID matches the owner.
+
+## Choose your source connections
+
+| Source | Connection | Node.js | Cloudflare Workers |
+| --- | --- | --- | --- |
+| GitHub | Username; optional owner classic PAT/OAuth token for full data | Public REST or token-bound GraphQL | Public REST or token-bound GraphQL |
+| WakaTime | Public username/range; optional owner OAuth fallback or token-only identity | Direct API collection | Direct API collection |
+| Codex | Optional bare public ID; account login/sync required for usage | Read enabled local account aggregates | Receive enabled aggregate-only imports |
+| OpenRouter | Management key | Direct account analytics | Direct account analytics |
+
+GitHub has separate repository and personal-activity caches. These are two
+datasets from **one** service, not extra sources. Each WakaTime range has its
+own cache; the selected range does not change Codex or OpenRouter's reporting
+window. Anthropic organization API usage is an additional advanced integration,
+not one of the four primary services. See [usage setup](AI-USAGE.md).
 
 ## Credentials
 
 ### GitHub
 
-Create a [classic PAT](https://github.com/settings/tokens/new) for the account
-named by `GITHUB_USERNAME`. For full public/private statistics, select:
+For a keyless public card, set only `GITHUB_USERNAME` or use `?github=ID`.
+This uses anonymous REST for profile, owned public repository metadata, stars,
+forks and Search totals for authored PRs, merged PRs, issues and commits. It does
+not enumerate per-repository language endpoints or individual commits. Language
+bytes, calendar/review totals, private repositories and organization/collaborator
+inventories are unavailable. Missing values remain unknown, not zero.
+
+Metadata collection is bounded to ten pages of 100 repositories. Above that
+limit, selected repository count, stars and forks are omitted explicitly.
+Incomplete Search responses and transient errors retain saved data instead of
+publishing partial totals. Anonymous calls share the outgoing IP's
+[60 requests/hour limit](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
+and [10 Search requests/minute limit](https://docs.github.com/en/rest/search/search#rate-limit).
+The cache is important when one instance serves many public names.
+
+For the best full card, configure the account name and an owner-bound token.
+Create a [classic PAT](https://github.com/settings/tokens/new) belonging to the
+account in `GITHUB_USERNAME`. For full public/private statistics, select:
 
 - `repo`: repositories and activity visible to the token, including private work.
-- `read:user`: account and activity access; the broader `user` scope also covers it.
-- `read:org`: organization membership; inherited broader organization scopes work.
+- `read:user`: account and activity access; the broader `user` scope covers it.
+- `read:org`: organization membership; broader inherited organization scopes work.
 
-Use the same account for the token and `GITHUB_USERNAME`. An existing OAuth
-access token with these scopes also works; CodeStats does not implement an OAuth
-login flow. Fine-grained PATs are not supported as a substitute for the current
-full-mode scope checks. Authorize the token for applicable organization SSO and
-respect organization token policies. A token cannot access more than its owner.
+An existing OAuth token with these scopes also works. CodeStats does not provide
+an OAuth login flow. Fine-grained PATs are not a substitute for the current full-mode
+scope checks. Organization SSO and token policies still apply.
 
-The collector performs read operations, although a classic PAT's `repo` scope
-also grants write capabilities. Store it only on your server or as a Worker
-secret. `GITHUB_VISIBILITY=all` intentionally publishes aggregate counts that
-include private work; private repository names, IDs and code are not returned.
-`public` restricts repository/language data and leaves extended activity/rank
-unavailable; it is not the recommended full-profile mode.
+The collector makes read requests, although the classic `repo` permission also
+grants write access. `GITHUB_VISIBILITY=all` publishes aggregate counts that can
+include private work, but not private repository names, IDs or code. The reduced
+`public` mode omits extended personal activity and rank data.
 
 ### WakaTime
 
-Set `WAKATIME_USERNAME` to your WakaTime ID. For the default `all_time` range,
-make that statistics range public in your WakaTime profile's sharing settings.
-Public statistics need no token. For a private or different authorized range,
-provide a WakaTime **OAuth access token** with appropriate read-stats access
-(`read_stats.languages` for language statistics).
+Set `WAKATIME_USERNAME` to a username or account UUID, without a URL, and publish
+the desired statistics range. Public data is requested first for the exact
+`all_time`, `last_7_days` or `last_30_days` range. A complete public response wins
+even when an OAuth token is configured.
 
-`WAKATIME_TOKEN` is optional and is sent as a Bearer token. The API key used by
-editor heartbeat plugins is not interchangeable with this OAuth access token.
-For your own account, [WakaTime's personal OAuth page](https://wakatime.com/oauth)
-provides a token after login; no published OAuth application is needed. Copy that
-token into your private configuration, not a README or image URL. CodeStats does
-not create or exchange OAuth tokens for you. If a range is not
-available, publish/authorize it or choose an available range; the service does
-not silently replace it with a different period. All-time can remain pending
-while WakaTime recalculates it. [WakaTime API reference](https://wakatime.com/developers).
+For the best unattended setup, also supply a server-side **OAuth access token**
+as `WAKATIME_TOKEN` with `read_stats.languages` (or `read_stats`) and `email`.
+The latter permits the documented `/users/current` owner check; its raw profile
+and email payload is discarded, retaining only the resolved account identity.
+Only when public data is unavailable,
+recalculating or invalid does CodeStats verify that owner and retry the **same
+range** with OAuth. A mismatched owner is rejected. Rate limits, network/5xx
+errors and redirects do not cause authenticated retry. An editor heartbeat API
+key is not interchangeable with the OAuth token.
+
+Token-only setup is supported: leave `WAKATIME_USERNAME` empty and provide OAuth.
+The owner is resolved before choosing a persistent cache identity. Username-only
+public URL profiles never receive the deployment's token or this fallback.
+
+Public and OAuth data are not intrinsically more or less complete. Compare the
+same range, cutoff, timeout/preferences and Other-inclusive total; public profile
+settings can affect what is visible. CodeStats neither picks the larger result
+nor mixes periods or payloads. See the official [Stats and Users API](https://wakatime.com/developers).
+
+[WakaTime's personal OAuth page](https://wakatime.com/oauth) provides a token
+after login. CodeStats does not issue or exchange OAuth tokens. It does not
+silently substitute another period when a range is unavailable or recalculating.
+[WakaTime API reference](https://wakatime.com/developers).
+
+### Codex
+
+Set `CODEX_USAGE_ENABLED=true` only when you want to display Codex usage.
+Optionally set `CODEX_USERNAME` to a bare ID such as `your-id`; CodeStats builds
+`https://chatgpt.com/u/your-id` itself. A public ID/link is not an authorization
+grant. Anonymous profile pages require sign-in for usage, so `?codex=ID` displays
+its canonical link with unavailable metrics and never uses owner CLI/imports.
+
+- **Node:** run under a user with the Codex CLI installed on `PATH` and an
+  existing supported Codex-service login. CodeStats starts a bounded child
+  `codex app-server --stdio` and reads `account/usage/read`; it does not copy
+  login credentials or inspect chat history. API-key-only or third-party-provider
+  logins may not provide this account summary.
+- **Worker:** the edge runtime cannot start your desktop CLI. Set the enable
+  flag there and configure `CODEX_SYNC_TOKEN` as a runtime Secret. Generate a
+  separate random secret of at least 32 characters, put the same secret in the
+  local sync environment, and run the bridge from the signed-in computer:
+
+  ```sh
+  npm run sync:codex -- https://stats.example.com
+  ```
+
+  This builds the Node helper, reads the account summary locally and posts only
+  validated numeric aggregates plus their observation time to
+  `/api/usage/codex`. The destination must be an HTTPS origin; HTTP is accepted
+  only for loopback development. No Codex login token is sent to the Worker.
+
+The bridge is manual; CodeStats creates no timer or scheduler. Repeat the sync
+when you want a new observation. Opening the card does not refresh an imported
+Codex snapshot's age. The current implementation does not scrape a
+`chatgpt.com/u/...` profile or use an OpenAI API billing key for these statistics.
+
+### OpenRouter
+
+Set `OPENROUTER_API_KEY` to an OpenRouter **Management key**. An ordinary inference
+key can be valid for model calls while lacking access to account token analytics.
+A Management key has administrative capabilities; CodeStats uses it only for a
+read-only analytics query and never puts it in card output.
+
+The collector makes one unfiltered daily aggregate query for tokens and request
+counts across the account. Its default interval is the **last 367 completed UTC
+days**, not lifetime. Today's partial UTC day is excluded. Optionally set the
+nonsecret `OPENROUTER_USAGE_SINCE=YYYY-MM-DD` to a shorter interval; this collector
+rejects intervals longer than 367 days rather than silently truncating them.
+The card's Tokens/day and Tokens/week are interval averages, including inactive
+days. Total prompts counts API requests. See [metric definitions](AI-USAGE.md).
 
 ## Node.js
 
-Requires Node.js26+ and npm. `.nvmrc` records the build baseline; ordinary local
-Node installations can follow their package manager.
+Use Node.js **26 or newer**, npm and Git. Local Node installations can follow
+the package manager; `.nvmrc` records the build baseline.
 
 ```sh
 git clone https://github.com/Leask/CodeStats.git
 cd CodeStats
 npm ci
 cp .env.example .env
-# Edit .env: usernames, GitHub token, optional WakaTime OAuth token.
+# Edit usernames and credentials; enable Codex/OpenRouter only if needed.
 chmod 600 .env
 npm start
 ```
 
-Visit `http://127.0.0.1:8791/build` for the HTML card builder. The root URL and
-`/card.svg` serve the transparent SVG directly. The first statistics request can
-take tens of seconds; subsequent fresh-cache requests reuse the saved datasets.
+Open `http://127.0.0.1:8791/build`. The root URL and `/card.svg` serve the
+transparent SVG. A cold statistics request can take tens of seconds; later
+requests reuse saved data while each source follows its own freshness state.
 
 For public hosting:
 
-1. Run the service from the project directory using your host's process manager.
-2. Put a public HTTPS reverse proxy in front of the default `127.0.0.1:8791`
-   listener, forwarding the service at the site's root path.
-3. Preserve the `.data/` directory through restarts and releases. In a container,
-   use a persistent volume and `HOST=0.0.0.0` if the listener must cross its network.
-4. Use the public HTTPS origin in the README generator. GitHub must be able to
-   fetch `/` or `/card.svg` without a login, VPN or private-network connection.
+1. Use your host's process manager to run the service from the project directory.
+2. Put a public HTTPS reverse proxy in front of `127.0.0.1:8791`, serving at the
+   origin's root path. GitHub must fetch the image without a login or VPN.
+3. Preserve `.data/` across restarts/releases. In containers, mount a persistent
+   volume; set `HOST=0.0.0.0` only when the listener must cross that network.
+4. If Codex is enabled, the service user must have the CLI and supported login.
+   Keeping only a copied `.env` on an unrelated host does not supply that login.
+5. Set the deployed public HTTPS origin in the builder, then copy its Markdown.
 
-`npm start` builds and starts Node. If your release process builds separately:
+`npm start` builds and runs Node. To build separately:
 
 ```sh
 npm run build:node
 node --env-file-if-exists=.env dist/node.mjs
 ```
 
-Environment variables already set by the process override file values. `npm start`
-loads local `.dev.vars` first and `.env` second; `.env` wins between those files.
-Using only `.env` is sufficient for a fresh Node installation. Node uses its own
-private SQLite store; it does not require Cloudflare or a database server.
+Existing process environment values take precedence. `npm start` loads
+`.dev.vars` first, then `.env`; `.env` wins between those files. A new Node
+installation needs only `.env`. Its persistent SQLite cache requires no external
+database or Cloudflare account. This Node dotenv behavior differs from Wrangler:
+when Wrangler finds `.dev.vars`, it does not also load `.env`.
 
 ## Cloudflare Workers
 
-Requires Node.js26+ for local tooling, npm, a Cloudflare account and Wrangler
-(the locked project dependency). SQLite-backed Durable Objects are available
-on Workers Free, subject to the platform's CPU, request, subrequest and storage
-limits; large profiles can require a higher plan. No production plan was tested
-as part of the local validation; choose capacity for your refresh workload.
+Use the locked Wrangler dependency, Node.js 26+ tooling and a Cloudflare account.
+The included SQLite Durable Object keeps snapshots inside Cloudflare; no separate
+KV or D1 database is needed. SQLite Durable Objects are available on Free and
+Paid plans, with plan-specific limits. Choose capacity for the profile's refresh
+workload; local validation is not a production-capacity test.
 [Durable Object pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
 [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
 
 ### Configure and preview
 
-Clone/install as above. In `wrangler.jsonc`, change:
+In `wrangler.jsonc`, replace the Worker `name`, `vars.GITHUB_USERNAME` and
+`vars.WAKATIME_USERNAME`. Add `"CODEX_USAGE_ENABLED": "true"` inside `vars` if
+using Codex imports. Set nonsecret options such as `OPENROUTER_USAGE_SINCE` in `vars` only
+when you want to override the defaults.
 
-- `name`: your Worker name, for example `my-codestats`.
-- `vars.GITHUB_USERNAME`: your GitHub ID.
-- `vars.WAKATIME_USERNAME`: your WakaTime ID.
-- Other nonsecret options only if you want different scope, range or cache timing.
-
-Keep `durable_objects.bindings` and the existing `v1/new_sqlite_classes`
-migration. Do not remove or retag an already deployed migration.
-Keep `keep_names: false` and `minify: false`: the builder serializes shared helper
-functions, and name-preservation instrumentation must not inject an undefined
-`__name` into browser code.
+Keep the `SNAPSHOTS` binding, class name and existing `v1/new_sqlite_classes`
+migration. Do not remove or retag a deployed migration. Keep `keep_names: false`
+and `minify: false`: the builder serializes shared helpers and must not acquire
+an undefined browser-side `__name` helper.
 
 ```sh
 cp .dev.vars.example .dev.vars
-# Fill GITHUB_TOKEN. Uncomment WAKATIME_TOKEN only if needed.
+# Fill GITHUB_TOKEN and any enabled-service secrets.
 chmod 600 .dev.vars
 npm run dev:worker
 ```
 
-Local Worker state is stored under `.wrangler/state`. It is separate from Node's
-`.data/` cache and is not uploaded to production. Choose one local runtime for
-port8791 at a time. Open `/build` for the interactive preview.
+Use `.dev.vars` for **secrets only**: GitHub token, optional WakaTime OAuth token,
+OpenRouter Management key, and optional Codex sync secret. Usernames, enable
+flags and reporting dates belong in Wrangler `vars`, not this upload file.
+Neither sample contains real credentials.
+
+Local Worker state is in `.wrangler/state`, separate from Node's `.data/`.
+Neither cache is uploaded to production. Run only one local service on port
+8791 at a time. Open `/build`; to see Worker Codex data, import an observation
+with the local bridge and a matching sync secret.
 
 ### First deployment
-
-Keep `.dev.vars` **secrets-only**: `GITHUB_TOKEN` and, optionally, `WAKATIME_TOKEN`.
-Put usernames and other public settings in `wrangler.jsonc` instead.
 
 ```sh
 npx wrangler login
 npm run deploy -- --secrets-file .dev.vars
 ```
 
-Wrangler's `--secrets-file` accepts this dotenv file and creates secret bindings
-without putting token values in command arguments. Its deployment applies the
-configured migration and binding automatically; no manual namespace, KV or D1
-creation is needed. Use the public `https://<worker>.<subdomain>.workers.dev` URL
-printed by Wrangler, or configure a custom domain in Cloudflare.
+This explicitly uploads the secrets-only dotenv file as runtime secrets and
+applies the configured Durable Object migration. Ordinary `npm run deploy` does
+not upload local `.dev.vars` automatically. Secrets omitted from an upload are
+preserved from the previous Worker version.
+[Cloudflare secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
 
-Local `.dev.vars` does not become production configuration unless explicitly
-provided with `--secrets-file`. Once production secrets exist, ordinary
-`npm run deploy` can update the code while preserving existing secrets. To rotate
-a single secret later, use a prompt or the Cloudflare dashboard:
+To update one credential through a secure prompt or the dashboard:
 
 ```sh
 npx wrangler secret put GITHUB_TOKEN
-# Only when using private/authorized WakaTime statistics:
+# Only for the services you enabled:
 npx wrangler secret put WAKATIME_TOKEN
+npx wrangler secret put OPENROUTER_API_KEY
+npx wrangler secret put CODEX_SYNC_TOKEN
 ```
 
-These commands change the deployed Worker; they are not local-only settings.
-Keep the Worker name, Durable Object class/binding and migration history stable
-to preserve the cache. No cron trigger or GitHub Actions workflow is required.
-[Cloudflare secrets](https://developers.cloudflare.com/workers/configuration/secrets/),
-[Durable Object migrations](https://developers.cloudflare.com/durable-objects/reference/durable-object-class-migrations-legacy/).
+These commands update the deployed Worker, not just local preview. Never put
+credential values in command arguments. Use the public Workers URL printed at
+deploy time or your custom domain in the README generator. Keep the Worker
+identity, profile usernames, binding and migration history stable to retain the
+cache. Enabling Codex imports also requires the nonsecret enable flag in `vars`.
+After deployment, run the local Codex sync against the public origin.
 
 ### Workers Builds dashboard
 
-Connecting this GitHub repository to Workers Builds is optional. Use the
-repository root, leave the optional **Build command** blank, and set the
-**Deploy command** to `npx wrangler deploy`. Wrangler bundles the TypeScript
-entry point itself. Use the Node version recorded in `.nvmrc` for build tooling;
-do not add a separate runtime or CI workflow for this setup.
+Optional Git integration can use the repository root, an empty **Build command**
+and **Deploy command** `npx wrangler deploy`. Wrangler bundles TypeScript itself.
+Use the Node version in `.nvmrc`; leave the repository's bundle settings intact.
 
-In the deployed Worker's **Settings → Variables and Secrets**, add
-`GITHUB_TOKEN` with type **Secret**. Add `WAKATIME_TOKEN` there only when needed.
-These must be runtime bindings: a similarly named secret in **Build settings**
-is available to the build process and does not by itself configure the running
-Worker. A successful build/deployment can therefore still show GitHub as
-unavailable when the runtime `GITHUB_TOKEN` is missing. Save/deploy the runtime
-secret change, then check `/build` and `/api/stats`.
+Add enabled-service credentials to the deployed Worker's **Settings → Variables
+and Secrets**, choosing **Secret**. A secret under **Build settings** does not by
+itself create the runtime binding. Save/deploy the runtime changes, then inspect
+`/build` and `/api/stats`. Put public options in `wrangler.jsonc`.
 
-Keep usernames and public options in `wrangler.jsonc`; never put real tokens in
-that file or the deploy command. Leave the repository's bundle settings intact;
-do not add `--minify` to the dashboard command.
+`keep_vars: true` preserves dashboard Variables on later Wrangler deployments.
+Variables and Secrets are both read through `env`, but Secrets hide credential
+values. After a previously missing GitHub token is added, the next request
+retries that configuration error; ordinary failures keep their normal cooldown.
+No Cron Trigger or GitHub Actions sync workflow is created automatically.
 
-The repository sets `keep_vars: true` so future Wrangler deployments preserve
-variables added in the dashboard. Plain runtime Variables and Secrets are both
-read through `env`; Secrets keep credential values hidden. After adding a
-previously missing GitHub token, the next request immediately retries that
-specific cached configuration error. Ordinary API/rate-limit failures retain
-their normal cooldown, and successful WakaTime data is left unchanged.
-`/health` reports only whether each token binding is currently configured,
-independently of saved errors; it never returns token values or hashes.
+## Optional background refresh
+
+Requests collect public username profiles on demand. They are never added to a
+background queue, and an optional configured-profile refresh cannot access their
+cache namespaces. Existing last-good behavior applies to every refresh.
+
+On **Node**, set `AUTO_REFRESH_SECONDS=21600` to refresh configured sources for
+`DEFAULT_RANGE` while the service process runs. The default `0` disables it;
+enabled intervals are at least 60 seconds. This creates no operating-system
+daemon or external timer, and it stops when the process closes. Each interval
+requests a refresh even if the previous observation is still fresh, while retry
+cooldowns remain respected. Choose an interval that fits upstream limits;
+`FRESH_SECONDS` continues to control normal visitor requests.
+Codex imports retain their original observation time.
+
+On **Workers**, the scheduled handler refreshes only the configured profile and
+`DEFAULT_RANGE`. Opt in by adding this top-level block to `wrangler.jsonc` and
+deploying it yourself:
+
+```jsonc
+{
+    // Merge into the existing configuration; preserve its vars and bindings.
+    "triggers": {
+        "crons": ["0 */6 * * *"]
+    }
+}
+```
+
+That expression runs every six hours in UTC. Keep the existing binding and
+migration. No trigger is shipped or deployed automatically. For an existing
+trigger, set `"crons": []` and deploy to disable it; merely removing the key does
+not disable a previously installed trigger.
+[Cloudflare Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/),
+[Wrangler trigger configuration](https://developers.cloudflare.com/workers/wrangler/configuration/#triggers).
+
+A scheduled refresh cannot start a desktop CLI on Workers or make an old Codex
+import fresh. Import a newer observation through the separate authenticated bridge.
+Scheduled calls request fresh collection but still honor retry/rate-limit waits.
 
 ## Settings
 
-Examples deliberately use username/token placeholders. Set both account IDs
-before starting or deploying. All options below apply to both runtimes unless noted.
+Replace sample account IDs before deployment. Options apply to both runtimes
+unless a row says otherwise.
 
 | Setting | Default / required value | Purpose |
 | --- | --- | --- |
-| `GITHUB_USERNAME` | Your GitHub ID | Token owner and displayed account |
-| `WAKATIME_USERNAME` | Your WakaTime ID | Published/authorized time statistics |
-| `GITHUB_TOKEN` | Required for GitHub | Server-side classic PAT or OAuth token |
-| `WAKATIME_TOKEN` | Optional | Read-stats OAuth token for private/other ranges |
-| `GITHUB_VISIBILITY` | `all` | Token-visible public/private data; `public` is a reduced mode |
-| `GITHUB_REPOSITORY_AFFILIATIONS` | `OWNER,COLLABORATOR,ORGANIZATION_MEMBER` | Native repository inventory filter |
+| `GITHUB_USERNAME` | Empty on Node unless configured | Public account name; token mode must match the owner |
+| `GITHUB_TOKEN` | Optional | Owner-bound classic PAT/OAuth for full GraphQL/private coverage |
+| `GITHUB_VISIBILITY` | `all` | Public/private aggregates; `public` is reduced mode |
+| `GITHUB_REPOSITORY_AFFILIATIONS` | `OWNER,COLLABORATOR,ORGANIZATION_MEMBER` | Repository inventory filter |
 | `GITHUB_INCLUDE_FORKS` | `true` | Include fork bytes and owned forks' stars |
 | `GITHUB_INCLUDE_OWN_CONTRIBUTIONS` | `true` | Include owned repos in contributed-repository counts |
-| `DEFAULT_RANGE` | `all_time` | Initial WakaTime range |
-| `FRESH_SECONDS` | `21600` | Six-hour freshness interval |
-| `RETRY_SECONDS` | `900` | Fifteen-minute minimum retry cooldown |
+| `WAKATIME_USERNAME` | Empty unless configured | Public username/UUID; token-only resolves its owner |
+| `WAKATIME_TOKEN` | Optional | Same-owner OAuth fallback; scopes `email` plus `read_stats.languages`/`read_stats` |
+| `DEFAULT_RANGE` | `all_time` | Initial WakaTime range only |
+| `CODEX_USAGE_ENABLED` | Disabled unless `true` | Local CLI reader on Node; aggregate-import display on Worker |
+| `CODEX_USERNAME` | Optional bare ID | Canonical public profile link; no anonymous usage access |
+| `CODEX_SYNC_TOKEN` | Optional independent secret, at least 32 characters | Authorize `/api/usage/codex` imports; not a Codex login token |
+| `OPENROUTER_API_KEY` | Optional Management key | Enable account analytics |
+| `OPENROUTER_USAGE_SINCE` | Last 367 completed UTC days | Optional shorter `YYYY-MM-DD` start |
+| `FRESH_SECONDS` | `21600` | Six-hour freshness interval; minimum 60 seconds |
+| `RETRY_SECONDS` | `900` | Fifteen-minute retry cooldown; minimum 60 seconds |
+| `AUTO_REFRESH_SECONDS` | `0` or `off` | Node-only configured-profile refresh; integer 60–2147483 seconds when enabled |
 | `HOST` | `127.0.0.1` | Node listener only |
 | `PORT` | `8791` | Node port only |
 | `CODESTATS_DATA_DIR` | `.data` | Persistent Node cache directory only |
+| `ANTHROPIC_ADMIN_KEY` | Optional advanced integration | Organization API usage; not a Claude Pro/Max subscription |
+| `ANTHROPIC_USAGE_SINCE` | Last 30 completed UTC days | Optional organization-usage UTC start date |
 
 ## Cache and verification
 
-Two upstream services produce three independent datasets: GitHub repositories,
-GitHub personal activity, and WakaTime statistics for the requested range.
+Four services retain independent observations. GitHub repository and activity
+data are cached separately, WakaTime has one entry per range, and each enabled
+usage provider has its own reporting window and last-success time.
 
-- Cold cache: wait for the first bounded fetch. Unavailable data is shown as a dash.
-- Fresh cache: saved statistics are reused for six hours by default.
-- Due cache: return the saved snapshot while refreshing in the background.
-- Failed refresh: retain old data and its original success time; wait at least
-  fifteen minutes before retrying, or longer when GitHub requests a rate-limit delay.
-- Successful snapshots have no deletion TTL. Preserve storage and profile identity
-  when updating. Cache-schema/scope changes can require a new initial fetch.
+- **Cold:** wait for a first bounded fetch. Unavailable fields show a dash.
+- **Fresh:** reuse the saved observation within the configured freshness interval.
+- **Stale:** return the last good values while a request-triggered refresh runs.
+- **Failed refresh:** keep old values and their original success time. Retry after
+  the cooldown, or later if GitHub specifies a longer rate-limit wait.
+- **Imported Codex:** only a newer authenticated sync updates its observation;
+  viewing the card cannot make it fresh again.
 
-Refreshes are request-driven. An idle deployment does no scheduled API polling.
-SVG responses also have five-minute HTTP caching; GitHub's image proxy can delay
-what you see in a README. The footer shows saved GitHub/WakaTime refresh ages;
-source status and exact times remain in `/api/stats`, accessible SVG metadata and
-the `/build` page. Saved data still needs the host and persistent storage to work.
+Successful snapshots have no deletion TTL. Preserve storage on upgrades. Scope
+changes may need a new cache entry; collector-version changes preserve supported
+prior snapshots while new data is fetched. Configured-profile background refresh
+is opt-in as described above; public URL names stay on demand.
 
-After deployment, open `/build`, check both services' dataset statuses, and
-inspect `/api/stats`. Check that `/` and `/card.svg` render the transparent card,
-then copy the builder's default linked Markdown. The snippet is available even
-when statistics fail to load. `/health` checks HTTP runtime readiness only; a200
-response there does not verify upstream access.
+Configured/private caches and public-query caches are isolated even for identical
+names. Provider/range entries retain independent errors, cooldowns and last-good
+values; changing `view` or `sources` is not permission to merge them. A public
+service can receive many distinct names: use normal hosting rate/access controls
+and persistent-storage monitoring to bound traffic and growth. The collector's
+request/time/body limits do not impose a global limit on the number of visitors.
+
+Token-only WakaTime resolution changes only its own WakaTime cache namespace.
+It does not move GitHub/OpenRouter observations or Codex aggregate imports into a
+different store. Unresolved OAuth identities cannot read another owner's WakaTime
+cache, and failures leave the other configured sources intact. Node bounds its
+in-memory public-profile cache; evicting an idle instance does not delete its
+persisted snapshots. Durable public-profile storage has no automatic deletion TTL.
+
+SVG responses also have five-minute HTTP caching; GitHub's image proxy can add
+its own delay. The footer and builder show provider refresh ages. Use the builder's
+GitHub details and `/api/stats` to inspect the separately cached repository and
+activity observations. Fresh means a recent successful observation, not complete
+lifetime coverage or synchronized reporting periods across all four providers.
+
+After deployment:
+
+1. Open `/build`, review each configured source and its scope/last-success time.
+2. Inspect `/api/stats`; verify optional usage providers are present only when enabled.
+3. Confirm `/` and `/card.svg` return the public transparent SVG.
+4. On Workers with Codex enabled, run one authenticated sync and check its saved age.
+5. Copy the builder's linked Markdown and verify the actual rendered README.
+
+`/health` establishes HTTP runtime readiness, not successful authentication to all
+four providers. Its configuration booleans are `githubTokenConfigured`,
+`wakatimeTokenConfigured`, `codexUsageEnabled` and `openrouterTokenConfigured`.
+They describe credential presence or enable intent, not a verified Codex login,
+successful sync or upstream access. They contain no tokens or hashes; the source
+snapshots are the collection evidence.
+Last-good data still requires the application and its storage to be reachable.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| Another person's profile appears | Replace both sample usernames; Worker account IDs belong in `wrangler.jsonc` |
-| GitHub says to configure `GITHUB_TOKEN` after a successful deploy | Add it as a Secret under the deployed Worker's Settings → Variables and Secrets; build-only secrets are insufficient |
-| GitHub scope/identity error | Token belongs to `GITHUB_USERNAME` and declares the required classic/OAuth scopes |
-| Organization data is missing | Token visibility, SSO authorization and organization policy; repo access alone may be insufficient |
-| WakaTime unavailable or calculating | Range is public/authorized and computation is complete; use OAuth rather than a heartbeat key |
-| README image is broken | Public HTTPS `/` or `/card.svg`, no access login, correct domain and no token in URL |
-| Builder reports `__name is not defined` | Use the repository's `keep_names: false` and `minify: false` bundle settings, redeploy, and check the actual `/build` page |
-| Old numbers remain | Check original success times and source errors; last-good fallback and GitHub image caching are intentional |
-| Node cannot listen | Port in use, invalid `HOST`/`PORT`, or cache directory ownership/mode |
-| Node cache permissions fail | Directory is owned by the service user and private0700; do not recursively change unrelated directories |
-| Free Worker hits a limit | Inspect platform error/logs and account limits; retain cached data and select suitable capacity |
+| Another profile appears | Replace sample usernames; Worker IDs belong in `wrangler.jsonc` |
+| Codex/OpenRouter absent from the SVG | Their builder cards say Not enabled until configured; only enabled usage services become SVG rows |
+| GitHub token missing after successful deploy | Add a runtime Secret under the Worker's Settings, not only Build settings |
+| Public GitHub lacks bytes, rank or calendar totals | Expected anonymous REST scope; use owner name+token in configured mode for full data |
+| GitHub scope/identity error | Token owner, classic/OAuth scopes, SSO authorization and organization policies |
+| WakaTime unavailable or calculating | Exact published range, owner-match and OAuth `email` plus read-stats permissions; no period substitution |
+| Public ID has no Codex/OpenRouter usage | Expected: Codex usage requires account access; OpenRouter has no anonymous username usage API |
+| Codex unavailable on Node | CLI on the service user's `PATH`, supported account login and usage endpoint |
+| Codex unavailable/stale on Worker | Enable flag, matching sync secret, one successful local sync, then original observation age |
+| Codex import rejected | Newer observation, HTTPS origin, matching separate secret of at least 32 characters |
+| OpenRouter inference works but usage fails | Use a Management key; ordinary inference credentials are insufficient |
+| OpenRouter differs from website lifetime total | The card uses its labeled completed-day analytics interval, not the private profile page |
+| README image broken | Public HTTPS endpoint, no authentication gate, correct domain, no key in URL |
+| Builder says `__name is not defined` | Restore `keep_names: false` / `minify: false`, rebuild and test the generated Worker |
+| Old values remain | Original success time, source errors, retry cooldown and image caching |
+| Node listener/cache fails | Port, `HOST`/`PORT`, service-owned private cache directory and persistent volume |
+| Worker limit/storage error | Runtime logs, binding/migration and current account limits; retain the cache |

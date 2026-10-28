@@ -1,9 +1,12 @@
 import {
-    displayLanguages, joinLanguages, renderCard, renderPage, selectLanguages,
+    displayLanguages, githubBytesAvailable, joinLanguages, renderCard, renderPage, selectLanguages,
 } from './render';
 import { RANGES } from './types';
 import type { CardOptions, Range, Settings, StatsSnapshot } from './types';
 import { CODEX_IMPORT_PATH, importCodexRequest } from './usage-import';
+import { resolveProfile } from './profile';
+import type { ProfileSelection } from './profile';
+import type { ReadOptions } from './cache';
 
 function rangeFrom(url: URL, env: Settings): Range {
     const value = url.searchParams.get('range') ?? env.DEFAULT_RANGE;
@@ -19,7 +22,8 @@ function cardOptions(url: URL): CardOptions {
     const sort = url.searchParams.get('sort') ?? 'code';
     const header = url.searchParams.get('header') ?? 'true';
     if (!['dark', 'light', 'transparent'].includes(theme)
-        || !['overview', 'languages', 'activity'].includes(view)
+        || !['overview', 'languages', 'activity', 'github', 'wakatime',
+            'codex', 'openrouter'].includes(view)
         || !['alternating', 'time', 'code', 'name'].includes(sort)) {
         throw new Error('Invalid theme, view or sort option.');
     }
@@ -40,13 +44,18 @@ function cardOptions(url: URL): CardOptions {
 
 /** Shared HTTP behavior for the Node and Worker adapters. */
 export function createHandler<Config extends Settings>(
-    readSnapshot: (env: Config, range: Range) => Promise<StatsSnapshot>,
+    readSnapshot: (env: Config, range: Range, selection: ProfileSelection,
+        options: ReadOptions) => Promise<StatsSnapshot>,
     saveCodex?: (env: Config, payload: unknown) => Promise<void>,
 ) {
     return {
         async fetch(request: Request, env: Config): Promise<Response> {
             const url = new URL(request.url);
             if (url.pathname === CODEX_IMPORT_PATH && saveCodex) {
+                if (url.search) {
+                    return new Response('Codex imports target the configured account; '
+                        + 'query selectors are not supported.', { status: 400 });
+                }
                 return importCodexRequest(request, env,
                     payload => saveCodex(env, payload));
             }
@@ -57,6 +66,10 @@ export function createHandler<Config extends Settings>(
             }
             let response: Response;
             if (['/build', '/build/'].includes(url.pathname)) {
+                try { resolveProfile(url, env); }
+                catch (error) {
+                    return new Response((error as Error).message, { status: 400 });
+                }
                 const defaultRange = RANGES.includes(env.DEFAULT_RANGE as Range)
                     ? env.DEFAULT_RANGE as Range : 'all_time';
                 response = new Response(renderPage(defaultRange), {
@@ -74,6 +87,8 @@ export function createHandler<Config extends Settings>(
                     configuration: {
                         githubTokenConfigured: Boolean(env.GITHUB_TOKEN?.trim()),
                         wakatimeTokenConfigured: Boolean(env.WAKATIME_TOKEN?.trim()),
+                        codexUsageEnabled: env.CODEX_USAGE_ENABLED === 'true',
+                        openrouterTokenConfigured: Boolean(env.OPENROUTER_API_KEY?.trim()),
                     },
                 }, { headers: { 'Cache-Control': 'no-store' } });
             } else if (url.pathname === '/favicon.svg') {
@@ -88,15 +103,70 @@ export function createHandler<Config extends Settings>(
             } else if (['/', '/api/stats', '/card.svg'].includes(url.pathname)) {
                 let range: Range;
                 let options: CardOptions;
+                let selection: ProfileSelection;
                 try {
                     range = rangeFrom(url, env);
                     options = cardOptions(url);
+                    selection = resolveProfile(url, env);
                 } catch (error) {
                     return new Response((error as Error).message, { status: 400 });
                 }
                 let data: StatsSnapshot;
                 try {
-                    data = await readSnapshot(env, range);
+                    data = await readSnapshot(env, range, selection, {
+                        sources: selection.mode === 'public' || url.searchParams.has('sources')
+                            ? selection.sources : undefined,
+                    });
+                    const selected = new Set<string>(selection.sources);
+                    const disabled = () => ({ data: null, lastSuccessAt: null,
+                        lastAttemptAt: null, lastError: null, retryAt: null,
+                        status: 'unavailable' as const, enabled: false });
+                    const aiUsage = Object.fromEntries(Object.entries(data.aiUsage ?? {})
+                        .filter(([service]) => selected.has(service)
+                            || (service === 'anthropic' && selection.mode === 'configured'
+                                && !url.searchParams.has('sources'))));
+                    data = { ...data,
+                        github: selected.has('github') ? data.github : disabled(),
+                        githubActivity: selected.has('github') ? data.githubActivity : undefined,
+                        wakatime: selected.has('wakatime') ? data.wakatime : disabled(),
+                        aiUsage: Object.keys(aiUsage).length ? aiUsage : undefined,
+                        selectedSources: [...selection.sources],
+                        profile: { mode: selection.mode, accounts: {
+                            ...selection.accounts,
+                            ...(selection.mode === 'configured' && !selection.accounts.wakatime
+                                && data.wakatime.data?.username
+                                ? { wakatime: data.wakatime.data.username } : {}),
+                        } },
+                    };
+                    if (selection.mode === 'public') {
+                        const unavailable = (message: string) => ({ ...disabled(),
+                            enabled: true, lastError: message });
+                        if (data.github.data && (data.github.data.visibility !== 'public'
+                            || data.github.data.username.toLowerCase() !== selection.accounts.github)) {
+                            data.github = unavailable('Public GitHub identity or visibility did not match.');
+                            data.githubActivity = undefined;
+                        }
+                        if (data.githubActivity?.data && (
+                            data.githubActivity.data.visibility !== 'public'
+                            || data.githubActivity.data.username.toLowerCase()
+                                !== selection.accounts.github)) {
+                            data.githubActivity = unavailable(
+                                'Public GitHub activity identity or visibility did not match.',
+                            );
+                        }
+                        if (data.wakatime.data && (data.wakatime.data.accessMode === 'oauth'
+                            || data.wakatime.data.username.toLowerCase()
+                                !== selection.accounts.wakatime)) {
+                            data.wakatime = unavailable('Public WakaTime identity did not match.');
+                        }
+                        for (const service of ['codex', 'openrouter'] as const) {
+                            if (data.aiUsage?.[service]) {
+                                data.aiUsage[service] = unavailable(service === 'codex'
+                                    ? 'Codex usage requires access to that account; a public ID is not authorization.'
+                                    : 'OpenRouter usage requires a configured account Management key.');
+                            }
+                        }
+                    }
                 } catch {
                     // Never expose native exceptions or claim a saved copy exists.
                     response = Response.json({ error: {
@@ -112,7 +182,7 @@ export function createHandler<Config extends Settings>(
                     const { repositoryLanguageCounts, ...github } = data.github.data ?? {};
                     const languageRows = displayLanguages(selectLanguages(
                         joinLanguages(data), options.sort, options.limit,
-                        data.github.data !== null, repositoryLanguageCounts,
+                        githubBytesAvailable(data.github.data), repositoryLanguageCounts,
                     ), 2);
                     response = Response.json({
                         ...data,

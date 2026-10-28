@@ -61,13 +61,21 @@ export class SqliteStorage implements Storage {
     }
 
     async get<T>(key: string): Promise<T | undefined> {
+        return this.read<T>(this.namespace, key);
+    }
+
+    private async read<T>(namespace: string, key: string): Promise<T | undefined> {
         const row = this.database.prepare(
             'SELECT payload FROM snapshots WHERE profile = ? AND key = ?',
-        ).get(this.namespace, key);
+        ).get(namespace, key);
         return row ? JSON.parse(String(row.payload)) as T : undefined;
     }
 
     async put<T>(key: string, value: T): Promise<void> {
+        return this.write(this.namespace, key, value);
+    }
+
+    private async write<T>(namespace: string, key: string, value: T): Promise<void> {
         const payload = JSON.stringify(value);
         if (payload === undefined) {
             throw new Error('Snapshots must be JSON serializable.');
@@ -75,7 +83,18 @@ export class SqliteStorage implements Storage {
         privately(() => this.database.prepare(
             'INSERT INTO snapshots (profile, key, payload) VALUES (?, ?, ?)'
             + ' ON CONFLICT (profile, key) DO UPDATE SET payload = excluded.payload',
-        ).run(this.namespace, key, payload));
+        ).run(namespace, key, payload));
+    }
+
+    /** A namespace view shares this object's single owned SQLite connection. */
+    scoped(namespace: string): Storage {
+        if (!namespace || namespace.length > 4096) {
+            throw new Error('Snapshot namespace is invalid.');
+        }
+        return {
+            get: <T>(key: string) => this.read<T>(namespace, key),
+            put: <T>(key: string, value: T) => this.write(namespace, key, value),
+        };
     }
 
     close(): void {

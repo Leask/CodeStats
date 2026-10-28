@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "private": true,
     "type": "module",
-    "description": "Resilient GitHub and WakaTime statistics for Node.js and Cloudflare Workers.",
+    "description": "Cached GitHub, WakaTime, Codex and OpenRouter profile cards for Node.js and Cloudflare Workers.",
     "scripts": {
         "dev": "wrangler dev --ip 127.0.0.1 --port 8791",
         "check": "tsc --noEmit",
@@ -13,6 +13,7 @@
         "test:runtime": "node scripts/cache-runtime-check.mjs",
         "test:preview": "node scripts/preview-check.mjs",
         "test:worker:browser": "npm run build && node scripts/worker-browser-check.mjs",
+        "test:profiles:browser": "npm run build && node scripts/multi-profile-browser-check.mjs",
         "start": "npm run build:node && node --env-file-if-exists=.dev.vars --env-file-if-exists=.env dist/node.mjs",
         "dev:worker": "wrangler dev --ip 127.0.0.1 --port 8791",
         "build:node": "node scripts/build-node.mjs",

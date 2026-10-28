@@ -1,5 +1,10 @@
 # Validation — independent scales and repository counts, 2026-10-28
 
+Historical milestones below preserve the observations and behavior at each
+review. For the current four-source builder, 10% scale steps and setup guidance,
+see the [later four-source acceptance](validation-2026-10-28-four-sources.md)
+and [current validation guide](../VALIDATION.md).
+
 The GitHub and WakaTime columns independently scale their largest displayed
 unrounded share to a nearly full track. Each heading states the full-track
 percentage. Row labels keep their original full-source percentages.

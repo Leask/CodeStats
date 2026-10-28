@@ -1,5 +1,7 @@
 import type {
     AIService,
+    AIUsageData,
+    GitHubData,
     CardOptions,
     LanguageRow,
     Range,
@@ -9,7 +11,10 @@ import type {
 } from './types';
 import { LANGUAGE_ICONS, languageIcon } from './language-icons';
 import { CLOCK_ICON, GITHUB_ICON, METRIC_ICONS, TROPHY_ICON } from './ui-icons';
+import { PROVIDER_ICONS } from './provider-icons';
 import { profileRank } from './rank';
+import { renderSourceCard } from './source-card';
+import { normalizeProfileAccount } from './profile';
 
 const ALIASES: Record<string, string> = {
     bash: 'shell',
@@ -274,7 +279,8 @@ function profileLine(value: string, maximum = 55): string {
     let units = 0;
     let result = '';
     for (const char of value) {
-        units += /[^\u0000-\u00ff]/.test(char) ? 1 : 0.62;
+        units += /[MWmw@]|[^\u0000-\u00ff]/.test(char) ? 1
+            : /[A-Z]/.test(char) ? 0.8 : 0.62;
         if (units > maximum) return result + '…';
         result += char;
     }
@@ -420,12 +426,19 @@ export function displayLanguages(rows: LanguageRow[], digits: 1 | 2): LanguageRo
     return result;
 }
 
+export function githubBytesAvailable(github: GitHubData | null): boolean {
+    return github !== null && github.languageCoverage !== 'unavailable'
+        && typeof github.totalBytes === 'number' && Number.isFinite(github.totalBytes);
+}
+
 /** Sum explicit language families before ranking; keep both denominators. */
 export function joinLanguages(
     snapshot: StatsSnapshot,
     sort: CardOptions['sort'] = 'alternating',
 ): LanguageRow[] {
     const github = snapshot.github.data;
+    const codeAvailable = githubBytesAvailable(github);
+    const totalBytes = codeAvailable ? github!.totalBytes! : 0;
     const totalSeconds = snapshot.wakatime.data?.totalSeconds ?? 0;
     const membership = github?.repositoryLanguageCounts;
     const groupCounts = new Map<string, number>();
@@ -438,7 +451,7 @@ export function joinLanguages(
     const repositoryCount = (key: string) => membership === undefined
         ? null : groupCounts.get(key) ?? 0;
     const code = new Map<string, { name: string; bytes: number; color: string }>();
-    for (const language of github?.languages ?? []) {
+    for (const language of codeAvailable ? github!.languages : []) {
         const key = canonical(language.name);
         const previous = code.get(key);
         code.set(key, {
@@ -451,7 +464,7 @@ export function joinLanguages(
     for (const language of snapshot.wakatime.data?.languages ?? []) {
         const key = canonical(language.name);
         const match = key === 'other' ? undefined : code.get(key);
-        const knownCode = github !== null && key !== 'other';
+        const knownCode = codeAvailable && key !== 'other';
         const previous = result.get(key);
         const bytes = match?.bytes ?? 0;
         result.set(key, {
@@ -463,7 +476,7 @@ export function joinLanguages(
                 + (previous?.timePercent ?? 0),
             codeBytes: knownCode ? bytes : null,
             codePercent: knownCode ? (
-                github.totalBytes > 0 ? 100 * bytes / github.totalBytes : 0
+                totalBytes > 0 ? 100 * bytes / totalBytes : 0
             ) : null,
             repositoryCount: repositoryCount(key),
         });
@@ -476,8 +489,7 @@ export function joinLanguages(
                 seconds: 0,
                 timePercent: 0,
                 codeBytes: language.bytes,
-                codePercent: github && github.totalBytes > 0
-                    ? 100 * language.bytes / github.totalBytes : 0,
+                codePercent: totalBytes > 0 ? 100 * language.bytes / totalBytes : 0,
                 repositoryCount: repositoryCount(key),
             });
         }
@@ -528,16 +540,16 @@ function codeSize(bytes: number | null): string {
     return `${Number((value / 1000 ** index).toFixed(1))} ${units[index]}`;
 }
 
-/** Full track = this source's largest displayed share, rounded up to 0.1%. */
+/** Full track = this source's largest share, rounded up in 10% steps. */
 export function languageScale(values: Array<number | null>): number | null {
     const available = values.filter((value): value is number =>
         value !== null && Number.isFinite(value) && value >= 0);
     if (!available.length) return null;
     const maximum = Math.min(100, Math.max(...available));
     if (maximum === 0) return 0;
-    const units = maximum * 10;
-    return Math.max(0.1,
-        Math.ceil(units - Number.EPSILON * Math.max(1, units)) / 10);
+    const units = maximum / 10;
+    return Math.max(10,
+        Math.ceil(units - Number.EPSILON * Math.max(1, units)) * 10);
 }
 
 /** Age of the last successful refresh when this static card was generated. */
@@ -610,13 +622,65 @@ function tokenTotal(value: number | null | undefined): string {
         }).format(value) : '—';
 }
 
+function usageDays(value: number | null | undefined): string {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? `${number(value)} ${value === 1 ? 'day' : 'days'}` : '—';
+}
+
+function taskDuration(value: number | null | undefined): string {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '—';
+    const totalMinutes = Math.round(value / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours ? `${number(hours)}h${minutes ? minutes + 'm' : ''}` : `${minutes}m`;
+}
+
+/** Native summaries retain the provider's own scope and missing-data semantics. */
+function usageMetrics(service: AIService, data: AIUsageData | null) {
+    const summary = data?.summary;
+    const tokens = (key: string, label: string, value: number | null | undefined) => ({
+        key, label, value: tokenTotal(value),
+        exact: typeof value === 'number' ? number(value) + ' tokens' : 'unavailable',
+    });
+    const days = (key: string, label: string, value: number | null | undefined) => ({
+        key, label, value: usageDays(value), exact: usageDays(value),
+    });
+    const total = tokens('totalTokens', 'Total tokens', data?.totalTokens);
+    if (service === 'codex') return [
+        total,
+        tokens('peakDailyTokens', 'Peak tokens', summary?.peakDailyTokens),
+        { key: 'longestRunningTurnSec', label: 'Longest task',
+            value: taskDuration(summary?.longestRunningTurnSec),
+            exact: typeof summary?.longestRunningTurnSec === 'number'
+                ? number(summary.longestRunningTurnSec) + ' seconds' : 'unavailable' },
+        days('longestStreakDays', 'Longest streak', summary?.longestStreakDays),
+        days('currentStreakDays', 'Current streak', summary?.currentStreakDays),
+    ];
+    if (service === 'openrouter') return [
+        total,
+        tokens('averageDailyTokens', 'Tokens/day', summary?.averageDailyTokens),
+        tokens('averageWeeklyTokens', 'Tokens/week', summary?.averageWeeklyTokens),
+        { key: 'totalPrompts', label: 'Total prompts',
+            value: tokenTotal(data?.totalPrompts),
+            exact: typeof data?.totalPrompts === 'number'
+                ? number(data.totalPrompts) + ' requests' : 'unavailable' },
+        days('longestStreakDays', 'Longest streak', summary?.longestStreakDays),
+    ];
+    return [total];
+}
+
+function usagePeriod(service: AIService, data: AIUsageData | null): string {
+    return service === 'codex' && data?.period === 'Lifetime tokens'
+        ? 'Lifetime' : data?.period ?? 'Not available yet';
+}
+
 /** Keep complete service labels together while fitting the footer width. */
 function refreshLines(labels: string[], maximumWidth: number): string[] {
     const lines: string[] = [];
     let line = '';
     for (const label of labels) {
         const next = line ? line + ' | ' + label : label;
-        if (line && next.length * 6.2 > maximumWidth) {
+        if (line && next.length * 5.4 > maximumWidth) {
             lines.push(line);
             line = label;
         } else {
@@ -628,7 +692,30 @@ function refreshLines(labels: string[], maximumWidth: number): string[] {
 }
 
 export function renderCard(snapshot: StatsSnapshot, options: CardOptions): string {
+    const sourceView = ['github', 'wakatime', 'codex', 'openrouter'].includes(options.view);
+    const partial = snapshot.selectedSources
+        && (!snapshot.selectedSources.includes('github')
+            || !snapshot.selectedSources.includes('wakatime'));
+    if (sourceView || partial) {
+        const hidden = { data: null, lastSuccessAt: null, lastAttemptAt: null,
+            lastError: null, retryAt: null, status: 'unavailable' as const, enabled: false };
+        const focused = !sourceView ? snapshot : { ...snapshot,
+            github: options.view === 'github' ? snapshot.github : hidden,
+            wakatime: options.view === 'wakatime' ? snapshot.wakatime : hidden,
+        };
+        const selected = selectLanguages(joinLanguages(focused), options.sort,
+            options.limit, githubBytesAvailable(focused.github.data),
+            focused.github.data?.repositoryLanguageCounts);
+        return renderSourceCard(snapshot, options, {
+            rows: displayLanguages(selected, 1),
+            codeScale: languageScale(selected.map(row => row.codePercent)),
+            timeScale: focused.wakatime.data
+                ? languageScale(selected.map(row => row.timePercent)) : null,
+        });
+    }
     const font = { large: 27, medium: 13, small: 11 } as const;
+    const cardPadding = 32;
+    const cardRight = 880 - cardPadding;
     const light = options.theme === 'light';
     const transparent = options.theme === 'transparent';
     const lightPalette = {
@@ -650,7 +737,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         : '';
     const allRows = joinLanguages(snapshot);
     const selected = selectLanguages(
-        allRows, options.sort, options.limit, snapshot.github.data !== null,
+        allRows, options.sort, options.limit, githubBytesAvailable(snapshot.github.data),
         snapshot.github.data?.repositoryLanguageCounts,
     );
     const rows = displayLanguages(selected, 1);
@@ -658,7 +745,7 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const timeScale = snapshot.wakatime.data
         ? languageScale(selected.map(row => row.timePercent)) : null;
     const activity = options.view === 'activity';
-    const aiSources = (['openrouter', 'codex', 'anthropic'] as const)
+    const aiSources = (['codex', 'openrouter', 'anthropic'] as const)
         .flatMap(service => {
             const source = snapshot.aiUsage?.[service];
             return source ? [{ service, source, label: AI_LABELS[service] }] : [];
@@ -666,10 +753,21 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const empty = rows.length === 0;
     const bodyHeight = activity ? 448 : Math.max(96, rows.length * 39 + 24);
     const metricRowHeight = 64;
-    const hiddenHeaderHeight = options.header === false ? 100 : 0;
-    const contentOffset = 61 - hiddenHeaderHeight;
-    const tableBottom = 257 + contentOffset + bodyHeight;
-    const usageHeight = !activity && aiSources.length ? 112 : 0;
+    // All section dividers have 20px of content padding. A hidden profile
+    // retains a compact rank lane, within the normal top card padding.
+    const sectionPadding = 20;
+    const usageHeadingGap = 12;
+    const usageSectionHeight = 110 + usageHeadingGap;
+    // Leave the same 20px content gap below the rank when the profile is hidden.
+    const hiddenHeaderHeight = options.header === false ? 54 : 0;
+    // Add breathing room below the visible profile without moving its aligned
+    // avatar/rank or changing outer padding and subsequent section spacing.
+    const profileSpacing = options.header === false ? 0 : 8;
+    const contentOffset = 48 - hiddenHeaderHeight + profileSpacing;
+    const summaryBottom = 256 - hiddenHeaderHeight + profileSpacing;
+    const summaryDividerY = summaryBottom + sectionPadding;
+    const tableBottom = 257 + contentOffset + bodyHeight + 6;
+    const usageHeight = !activity ? aiSources.length * usageSectionHeight : 0;
     const footerY = tableBottom + usageHeight;
     const github = snapshot.github.data;
     const activitySource = githubActivitySource(snapshot);
@@ -680,22 +778,28 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     const title = `${username} · coding footprint`;
     const allVisible = github?.visibility === 'all';
     const activityAllVisible = githubActivity?.visibility === 'all';
-    const fullName = profileLine(github?.name ?? username, 24);
+    // Reserve the other half of the header for the right-aligned rank row.
+    const fullName = profileLine(github?.name ?? username, 13);
     const profileDescription = github?.bio?.trim()
         || github?.profileStatus?.trim() || '';
     const rank = profileRank(github, githubActivity);
+    // Include the 3px ring in the outer padding; the body is translated -20px.
+    const avatarX = cardPadding + 1.5;
+    const avatarY = cardPadding + 20 + 1.5;
+    const avatarCenterX = avatarX + 34;
+    const avatarCenterY = avatarY + 34;
     // Reference rank ring: a complete dim rim plus 100 - percentile progress.
     const avatarRankRing = '<g data-avatar-rank-ring="true">'
         + '<title>' + (rank ? xml(`Rank progress: ${(100 - rank.percentile).toFixed(2)}%`)
             : 'Rank data unavailable') + '</title>'
-        + `<circle data-avatar-rank-rim="true" cx="66" cy="78" r="34" `
+        + `<circle data-avatar-rank-rim="true" cx="${avatarCenterX}" cy="${avatarCenterY}" r="34" `
         + `fill="none" stroke="${palette.time}" stroke-width="3" opacity="0.2"/>`
-        + (rank ? `<circle data-avatar-rank-progress="true" cx="66" cy="78" r="34" `
+        + (rank ? `<circle data-avatar-rank-progress="true" cx="${avatarCenterX}" cy="${avatarCenterY}" r="34" `
             + `fill="none" stroke="${palette.time}" stroke-width="3" opacity="0.8" `
             + 'pathLength="100" stroke-dasharray="100" '
             + `stroke-dashoffset="${rank.percentile.toFixed(6)}" `
             // Flat ends preserve the visible gap even for very high ranks.
-            + 'stroke-linecap="butt" transform="rotate(-90 66 78)"/>' : '')
+            + `stroke-linecap="butt" transform="rotate(-90 ${avatarCenterX} ${avatarCenterY})"/>` : '')
         + '</g>';
     const avatarRankStyles = rank && options.header !== false
         ? '@keyframes avatarRankProgress{from{stroke-dashoffset:100}'
@@ -750,55 +854,62 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         && /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(avatar);
     const profileHeader = '<g data-profile-header="true">'
         + '<defs><clipPath id="avatar-clip">'
-        + '<circle cx="66" cy="78" r="34"/></clipPath></defs>'
+        + `<circle cx="${avatarCenterX}" cy="${avatarCenterY}" r="34"/></clipPath></defs>`
         + (embeddedAvatar
-            ? `<image data-github-avatar="true" x="32" y="44" width="68" height="68" `
+            ? `<image data-github-avatar="true" x="${avatarX}" y="${avatarY}" width="68" height="68" `
                 + `href="${xml(avatar)}" clip-path="url(#avatar-clip)" `
                 + 'preserveAspectRatio="xMidYMid slice"/>'
-            : `<circle cx="66" cy="78" r="34" fill="${palette.panel}"/>`
-                + text(66, 78, username.slice(0, 1).toUpperCase(), font.large,
+            : `<circle cx="${avatarCenterX}" cy="${avatarCenterY}" r="34" fill="${palette.panel}"/>`
+                + text(avatarCenterX, avatarCenterY, username.slice(0, 1).toUpperCase(), font.large,
                     palette.muted, 'text-anchor="middle" dominant-baseline="central"'))
         + avatarRankRing
         + '<g data-profile-text="true">'
-        + `<text data-profile-name="true" x="116" y="${profileDescription ? 68 : 78}" `
+        + '<title>' + xml(github?.name ?? username) + '</title>'
+        + `<text data-profile-name="true" x="116" y="${avatarCenterY - (profileDescription ? 10 : 0)}" `
         + `dominant-baseline="central" font-size="${font.large}" `
         + `fill="${palette.fg}" font-weight="650">${xml(fullName)}</text>`
         + '<g data-profile-description="true"><title>' + xml(profileDescription) + '</title>'
-        + text(116, 78 + (font.large + 8) / 2,
+        + text(116, avatarCenterY + (font.large + 8) / 2,
             profileLine(profileDescription), font.small, palette.muted,
             'dominant-baseline="central"') + '</g></g></g>';
-    const footerLabel = '@' + username + (rank ? ' · Top '
+    const badgeUsername = username.length > 24 ? username.slice(0, 23) + '…' : username;
+    const footerLabel = '@' + badgeUsername + (rank ? ' · Top '
         + `${rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2)}% · ${rank.level}` : '');
-    const footerLabelX = rank ? 52 : 32;
-    const footerLabelWidth = footerLabel.length * font.small * 0.6;
+    // Align intrinsic SVG bounds, including icons, without estimating text
+    // widths. The full username remains in the accessible title.
+    const alignRight = 'transform-box:fill-box;transform:translateX(-100%)';
+    const rankY = cardPadding + 20 + 11;
     const refreshLabels = [
         `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)}`,
         `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`,
         ...aiSources.map(({ label, source }) => `${label}: `
             + refreshAge(source.lastSuccessAt, snapshot.generatedAt)),
     ];
-    const refreshLabel = refreshLabels.join(' | ');
-    const inlineRefreshX = Math.ceil(footerLabelX + footerLabelWidth + 16);
-    const wrapFooter = aiSources.length > 0 || footerLabelWidth > 220
-        || inlineRefreshX + 20 + refreshLabel.length * font.small * 0.56 > 594;
-    const refreshX = wrapFooter ? 32 : inlineRefreshX;
-    const refreshY = footerY + 29 + (wrapFooter ? 22 : 0);
-    const lines = aiSources.length ? refreshLines(refreshLabels, 796) : [refreshLabel];
-    const creditY = aiSources.length ? footerY + 29 : refreshY;
-    const height = footerY + 40 + (wrapFooter ? 22 : 0)
-        + (lines.length - 1) * 20;
-    const footerRank = `<g data-profile-${rank ? 'rank' : 'identity'}="true">`
-        + (rank ? '<title>Estimated percentile from the '
+    const compactRefresh = refreshLabels.join(' | ').length * 5.4 > 542;
+    const displayedRefresh = compactRefresh ? refreshLabels.map(label => label
+        .replace(/(\d+) hr/g, '$1h').replace(/(\d+) mins?/g, '$1m')
+        .replace(/, /g, ' ')) : refreshLabels;
+    const refreshX = 32;
+    const refreshY = footerY + 30;
+    const lines = refreshLines(displayedRefresh, 542);
+    const creditY = refreshY;
+    const height = footerY + cardPadding + 13 + (lines.length - 1) * 20;
+    const upperRank = `<g transform="translate(${cardRight} 0)">`
+        + `<g data-profile-${rank ? 'rank' : 'identity'}="true" `
+        + `data-rank-placement="top-right" style="${alignRight}">`
+        + '<title>' + xml('@' + username) + (rank ? '. Estimated percentile from the '
         + 'GitHub Stats Extended weighted model: commits, PRs, issues, recent '
-        + 'review contributions, owned stars and followers.</title>'
-        + `<svg data-rank-icon="true" x="32" y="${footerY + 18}" `
+        + 'review contributions, owned stars and followers.' : '. GitHub profile.')
+        + '</title>'
+        + (rank ? ''
+        + `<svg data-rank-icon="true" x="0" y="${rankY - 11}" `
         + `width="14" height="14" viewBox="0 0 16 16" fill="${palette.time}" `
         + `aria-hidden="true"><path d="${TROPHY_ICON}"/></svg>` : '')
-        + text(footerLabelX, footerY + 29, footerLabel,
-            font.small, rank ? palette.time : palette.muted) + '</g>';
+        + text(rank ? 20 : 0, rankY, footerLabel,
+            font.small, rank ? palette.time : palette.muted) + '</g></g>';
     const metricMarkup = metrics.map((metric, index) => {
         const x = 32 + index % 4 * 211;
-        const y = 166 - hiddenHeaderHeight
+        const y = 166 - hiddenHeaderHeight + profileSpacing
             + Math.floor(index / 4) * metricRowHeight;
         const valueX = x + 48;
         const iconSize = 38;
@@ -850,27 +961,29 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         body = text(32, 285, 'Waiting for the first successful source snapshot.', font.medium)
             + text(32, 311, 'Existing saved data will appear here whenever a source is temporarily unavailable.', font.small, palette.muted);
     } else {
+        const codeTrackWidth = 523 - 225;
+        const timeTrackWidth = cardRight - 558;
         body = text(32, 258, 'LANGUAGE', font.small, palette.muted, 'letter-spacing="1.1"')
             + '<g data-language-scale="code" data-scale-percent="'
             + (codeScale ?? '') + '">'
             + text(225, 258, 'GITHUB · CODE BYTES · SCALE '
-                + (codeScale === null ? '—' : `${codeScale.toFixed(1)}%`),
+                + (codeScale === null ? '—' : `${codeScale}%`),
             font.small, palette.code, 'letter-spacing="0.5"') + '</g>'
             + '<g data-wakatime-column="true"><title>WakaTime · '
             + xml(timeRangeLabel(snapshot)) + '</title>'
             + '<g data-language-scale="time" data-scale-percent="'
             + (timeScale ?? '') + '">'
             + text(558, 258, 'WAKATIME · CODE TIME · SCALE '
-                + (timeScale === null ? '—' : `${timeScale.toFixed(1)}%`),
+                + (timeScale === null ? '—' : `${timeScale}%`),
             font.small, palette.time, 'letter-spacing="0.5"') + '</g></g>';
         body += rows.map((row, index) => {
             const y = 289 + index * 39;
             const name = row.name.length > 23 ? row.name.slice(0, 22) + '…' : row.name;
             // Use unrounded source shares for geometry; labels still sum to100.
             const timeWidth = timeScale
-                ? Math.min(1, selected[index].timePercent / timeScale) * 210 : 0;
+                ? Math.min(1, selected[index].timePercent / timeScale) * timeTrackWidth : 0;
             const codeWidth = codeScale
-                ? Math.min(1, (selected[index].codePercent ?? 0) / codeScale) * 249 : 0;
+                ? Math.min(1, (selected[index].codePercent ?? 0) / codeScale) * codeTrackWidth : 0;
             const repos = row.repositoryCount;
             const repoLabel = repos === null || repos === undefined ? '— repos'
                 : `${number(repos)} ${repos === 1 ? 'repo' : 'repos'}`;
@@ -885,14 +998,14 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
                 + text(64, y, name, font.medium, palette.fg, 'font-weight="500"')
                 + text(64, y + 14, repoLabel, font.small, palette.muted,
                     'data-repository-count="true"')
-                + `<rect x="225" y="${y - 10}" width="249" height="7" rx="3.5" fill="${palette.track}"/>`
+                + `<rect x="225" y="${y - 10}" width="${codeTrackWidth}" height="7" rx="3.5" fill="${palette.track}"/>`
                 + `<rect data-code-bar="true" x="225" y="${y - 10}" width="${codeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.code}"/>`
-                + text(523, y, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, font.small, palette.code, 'text-anchor="end"')
+                + text(523, y + 14, row.codePercent === null ? '—' : `${row.codePercent.toFixed(1)}%`, font.small, palette.code, 'text-anchor="end" data-code-percent="true"')
                 + text(225, y + 14, codeSize(row.codeBytes), font.small,
                     palette.muted, 'data-code-value="true"')
-                + `<rect x="558" y="${y - 10}" width="210" height="7" rx="3.5" fill="${palette.track}"/>`
+                + `<rect x="558" y="${y - 10}" width="${timeTrackWidth}" height="7" rx="3.5" fill="${palette.track}"/>`
                 + `<rect data-time-bar="true" x="558" y="${y - 10}" width="${timeWidth.toFixed(2)}" height="7" rx="3.5" fill="${palette.time}"/>`
-                + text(841, y, waka ? `${row.timePercent.toFixed(1)}%` : '—', font.small, palette.time, 'text-anchor="end"')
+                + text(cardRight, y + 14, waka ? `${row.timePercent.toFixed(1)}%` : '—', font.small, palette.time, 'text-anchor="end" data-time-percent="true"')
                 + text(558, y + 14, waka ? duration(row.seconds) : '—',
                     font.small, palette.muted, 'data-time-value="true"')
                 + '</g>';
@@ -902,41 +1015,53 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         : waka?.rangeLabel ? ` · ${waka.rangeLabel}` : '';
     const through = waka && !waka.includesToday ? ' · today excluded by source' : '';
     const usageMarkup = usageHeight ? '<g data-ai-usage-summary="true">'
-        + `<path d="M32 ${tableBottom}H848" stroke="${palette.line}"/>`
-        + text(32, tableBottom + 25, 'TOKEN USAGE', font.small, palette.muted,
-            'letter-spacing="1.1"')
         + aiSources.map(({ service, source, label }, index) => {
-            const width = 816 / aiSources.length;
-            const x = 32 + index * width;
+            const top = tableBottom + index * usageSectionHeight;
+            const values = usageMetrics(service, source.data);
+            const period = usagePeriod(service, source.data);
+            const width = 816 / values.length;
             const total = source.data?.totalTokens;
             const exact = total === null || total === undefined ? 'unavailable'
                 : number(total) + ' tokens';
-            return `<g data-token-service="${service}" data-usage-status="${source.status}">`
+            return `<g data-token-service="${service}" data-usage-status="${source.status}" `
+                + `data-section="usage-${service}" data-section-top="${top}" `
+                + `data-section-bottom="${top + usageSectionHeight}" `
+                + `data-section-padding="${sectionPadding}">`
                 + '<title>' + xml(`${label}: ${exact}. `
-                    + `${source.data?.period ?? 'No successful snapshot'}. `
+                    + `${period}. `
                     + `${source.data?.scope ?? ''} ${sourceLine(label, source)}.`)
                 + '</title>'
-                + (index ? `<path d="M${x - 16} ${tableBottom + 40}`
-                    + `v54" stroke="${palette.line}"/>` : '')
-                + `<svg data-token-icon="true" x="${x}" y="${tableBottom + 39}" `
-                + `width="22" height="22" viewBox="0 0 24 24" fill="none" `
-                + `stroke="${palette.muted}" stroke-width="1.5" aria-hidden="true">`
-                + '<path d="m12 2 8.66 5v10L12 22l-8.66-5V7Z"/>'
-                + '<path d="M8 8h8m-4 0v8"/></svg>'
-                + text(x + 30, tableBottom + 59, tokenTotal(total),
-                    font.large, palette.fg, 'font-weight="650" data-token-total="true"')
-                + text(x, tableBottom + 80, label + ' · tokens', font.medium,
+                + `<path d="M32 ${top}H848" stroke="${palette.line}"/>`
+                + `<svg data-token-icon="true" x="32" y="${top + 17}" `
+                + `data-provider-icon="${service}" width="16" height="16" `
+                + `viewBox="0 0 24 24" fill="${palette.muted}" `
+                + `fill-rule="evenodd" aria-hidden="true">`
+                + `<path d="${PROVIDER_ICONS[service]}"/></svg>`
+                + text(54, top + 30, label, font.medium,
                     palette.fg, 'data-token-label="true"')
-                + text(x, tableBottom + 98,
-                    source.data?.period ?? 'Not available yet', font.small,
+                + text(148, top + 30, period, font.small,
                     palette.muted, 'data-token-period="true"')
+                + values.map((metric, metricIndex) => {
+                    const x = 32 + (metricIndex + 0.5) * width;
+                    return `<g data-usage-metric="${metric.key}">`
+                        + '<title>' + xml(`${metric.label}: ${metric.exact}`) + '</title>'
+                        + (metricIndex ? `<path d="M${32 + metricIndex * width} ${top + 42 + usageHeadingGap}`
+                            + `v48" stroke="${palette.line}"/>` : '')
+                        + text(x, top + 64 + usageHeadingGap, metric.value, font.large, palette.fg,
+                            'font-weight="650" text-anchor="middle" '
+                            + (metric.key === 'totalTokens' ? 'data-token-total="true"' : ''))
+                        + text(x, top + 87 + usageHeadingGap, metric.label, font.medium, palette.muted,
+                            'text-anchor="middle" data-usage-label="true"')
+                        + '</g>';
+                }).join('')
                 + '</g>';
         }).join('') + '</g>' : '';
     return `<svg xmlns="http://www.w3.org/2000/svg" width="880" height="${height}" `
-        + `viewBox="0 0 880 ${height}" role="img" aria-labelledby="title desc">`
+        + `viewBox="0 0 880 ${height}" data-card-padding="${cardPadding}" `
+        + 'role="img" aria-labelledby="title desc">'
         + `<title id="title">${xml(title)}</title>`
         + '<desc id="desc">WakaTime time shares and GitHub repository language byte shares have separate denominators. '
-        + 'Each column independently scales its largest displayed share to a full track. '
+        + 'Each column independently rounds its largest displayed share up to a 10% scale step. '
         + 'Scale labels state the true percentage represented by a full track. '
         + 'Repository counts use the headline repository scope and deduplicate merged languages; '
         + 'a repository may appear in several groups. A dash means a saved snapshot lacks counts. '
@@ -959,31 +1084,51 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
         + `fill="${transparent ? 'none' : palette.bg}" stroke="${palette.line}"/>`
         + '<g transform="translate(0 -20)">'
         + (options.header === false ? '' : profileHeader)
-        + metricMarkup
-        + `<path d="M32 ${217 + contentOffset}H848" stroke="${palette.line}"/>`
-        + `<g transform="translate(0 ${contentOffset})">${body}</g>`
+        + upperRank
+        + `<g data-section="summary" data-section-top="${147 - hiddenHeaderHeight + profileSpacing}" `
+        + `data-section-bottom="${summaryBottom}" data-section-padding="${sectionPadding}">`
+        + metricMarkup + '</g>'
+        + `<path d="M32 ${summaryDividerY}H848" stroke="${palette.line}"/>`
+        + `<g data-section="${activity ? 'activity' : 'languages'}" `
+        + `data-section-top="${summaryDividerY}" data-section-bottom="${tableBottom}" `
+        + `data-section-padding="${sectionPadding}" `
+        + `transform="translate(0 ${contentOffset})">${body}</g>`
         + usageMarkup
         + `<path d="M32 ${footerY}H848" stroke="${palette.line}"/>`
-        + footerRank
-        + '<g data-refresh-times="true">'
+        + `<g data-section="footer" data-section-top="${footerY}" `
+        + `data-section-padding="${sectionPadding}">`
+        + `<g data-refresh-times="true" data-refresh-format="${compactRefresh ? 'compact' : 'full'}">`
+        + '<title>' + xml(refreshLabels.join(' | ')) + '</title>'
         + lines.map((line, index) => `<g data-refresh-line="${index}">`
             + `<svg x="${refreshX}" y="${refreshY - 11 + index * 20}" width="14" height="14" `
             + `viewBox="0 0 16 16" fill="${palette.muted}" aria-hidden="true"><path d="${CLOCK_ICON}"/></svg>`
             + text(refreshX + 20, refreshY + index * 20, line,
                 font.small, palette.muted) + '</g>').join('')
-        + '</g><a data-project-credit="true" href="https://github.com/Leask/CodeStats" '
-        + 'target="_blank" rel="noopener noreferrer">'
-        + `<svg x="610" y="${creditY - 11}" width="14" height="14" viewBox="0 0 16 16" `
+        + `</g><g transform="translate(${cardRight} 0)">`
+        + '<a data-project-credit="true" href="https://github.com/Leask/CodeStats" '
+        + `target="_blank" rel="noopener noreferrer" style="${alignRight}">`
+        + `<svg x="0" y="${creditY - 11}" width="14" height="14" viewBox="0 0 16 16" `
         + `fill="${palette.muted}" aria-hidden="true"><path d="${GITHUB_ICON}"/></svg>`
-        + `<text x="630" y="${creditY}" font-size="${font.small}" `
+        + `<text x="20" y="${creditY}" font-size="${font.small}" `
         + `fill="${palette.muted}">Power by github.com/Leask/`
         + `<tspan fill="${palette.time}" font-weight="650">CodeStats</tspan></text>`
-        + '</a></g>'
+        + '</a></g></g></g>'
         + '</svg>';
 }
 
 /** Card builder; no remote scripts, fonts, or fake sample data. */
 export function renderPage(defaultRange: Range = 'all_time'): string {
+    const docs = 'https://github.com/Leask/CodeStats/blob/main/docs/';
+    const sourceIcon = (path: string, size = 16) =>
+        `<svg class="source-icon" viewBox="0 0 ${size} ${size}" `
+        + `aria-hidden="true" fill="currentColor"><path d="${path}"/></svg>`;
+    const optionalPlaceholders = (['codex', 'openrouter'] as const).map(service =>
+        `<div class="source-state" data-source-provider="${service}">`
+        + '<div class="source-head"><span class="source-name">'
+        + sourceIcon(PROVIDER_ICONS[service], 24) + AI_LABELS[service] + '</span>'
+        + `<span class="badge" id="${service}-status">Loading</span></div>`
+        + '<small>Reading source configuration.</small></div>',
+    ).join('');
     return String.raw`<!doctype html>
 <html lang="en">
 <head>
@@ -1010,16 +1155,26 @@ padding:7px 10px;border-radius:6px}.hero{padding:52px 0 36px;display:flex;justif
 h1{font-size:48px;line-height:1.1;letter-spacing:-2px;margin:12px 0 16px;font-weight:600}
 .hero p{color:var(--muted);font-size:15px;max-width:670px;margin:0}.identity{text-align:right;align-self:flex-end}
 .identity strong{display:block;font-weight:500}.identity small{color:var(--muted)}
+.nav-links{display:flex;align-items:center;gap:18px}.nav-links a{font-size:12px;text-decoration:none}
+.source-strip{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:22px;color:#c8d2df;font-size:12px}
+.source-strip span,.source-name{display:flex;align-items:center;gap:7px}
+.source-icon{width:14px;height:14px;flex:none;color:var(--muted)}
+.control-hint{display:block;font-size:10px;line-height:1.5;color:var(--muted);margin-top:6px}
 .layout{display:grid;grid-template-columns:228px minmax(0,1fr);gap:28px;align-items:start}
 aside{position:sticky;top:24px}.config,.source-panel{border:1px solid var(--line);border-radius:12px;background:var(--panel)}
 .config{padding:20px}.section-title{font-size:10px;letter-spacing:1.5px;color:var(--muted);
 text-transform:uppercase;font-weight:650;margin:0 0 19px}.control{margin:0 0 18px}
-label{display:block;color:#c8d2df;font-size:12px;margin-bottom:7px}select,input[type=url]{width:100%;
+label{display:block;color:#c8d2df;font-size:12px;margin-bottom:7px}select,input[type=url],input[type=text]{width:100%;
 border:1px solid #354252;border-radius:6px;background:#101720;color:var(--text);padding:9px 10px}
+select{appearance:none;-webkit-appearance:none;padding-right:32px;
+background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c8d2df' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+background-repeat:no-repeat;background-position:right 12px center;background-size:12px 12px}
+@media(forced-colors:active){select{appearance:auto;background-image:none;padding-right:10px}}
 .source-panel{padding:19px;margin-top:16px}.source-state{padding:0 0 15px;margin:0 0 15px;border-bottom:1px solid var(--line)}
 .source-state:last-child,.source-state.last-source{padding:0;margin:0;border:0}.source-head{display:flex;justify-content:space-between;gap:8px;
-font-size:12px}.badge{font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:var(--green)}
-.badge.stale,.badge.unavailable{color:#e2b570}.source-state small{color:var(--muted);display:block;font-size:10px;
+font-size:12px;align-items:center;flex-wrap:wrap}.source-name{font-weight:600;min-width:0}.badge{font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:var(--green);white-space:nowrap}
+.badge.stale,.badge.unavailable,.badge.partial{color:#e2b570}.badge.not-enabled{color:var(--muted)}
+.source-state small{color:var(--muted);display:block;font-size:10px;
 line-height:1.6;margin-top:5px;overflow-wrap:anywhere}.preview-label{display:flex;align-items:center;
 justify-content:space-between;margin:0 0 13px;color:var(--muted);font-size:10px;letter-spacing:1.4px;text-transform:uppercase}
 .preview-label a{font-size:10px;text-decoration:none;letter-spacing:.5px}.card-stage{border-radius:18px;min-height:260px;
@@ -1045,6 +1200,19 @@ vertical-align:-3px;margin-right:9px}.detail-note{color:var(--muted);font-size:1
 .metric-definitions dt{color:var(--text);font-weight:500;margin-top:10px}
 .metric-definitions dd{margin:2px 0 0}.activity-tables{display:grid;grid-template-columns:2fr 1fr;gap:20px}
 .activity-tables h3{font-size:11px;font-weight:500;margin:14px 0 4px}
+.source-datasets{border:0;margin:7px 0 0;background:none;border-radius:0}
+.source-datasets>summary{padding:3px 0;font-size:10px;color:var(--muted)}
+.source-datasets>summary::after{font-size:14px}.source-dataset{padding-top:8px}
+.source-dataset-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:#c8d2df}
+.source-state .source-setup{display:inline-block;font-size:10px;margin-top:7px;text-decoration:none}
+.source-legend{font-size:10px;line-height:1.65;color:var(--muted);margin:0 0 16px}
+.usage-table th:nth-child(2),.usage-table td:nth-child(2),.usage-table th:last-child,.usage-table td:last-child{text-align:left}
+.usage-scopes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+.usage-scopes strong{font-size:12px;font-weight:500}.usage-scopes p{overflow-wrap:anywhere}
+.setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.setup-grid h3{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;margin:0 0 7px}
+.setup-grid p{font-size:12px;color:var(--muted);margin:0 0 8px;line-height:1.65}
+.setup-grid a{font-size:11px}.setup-note{font-size:11px;color:var(--muted);margin:20px 0 0}
 .snippet-head{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:14px 0}
 .snippet-head p{margin:0;color:var(--muted);font-size:11px}.button{border:1px solid #3e6559;background:#1e382f;
 color:#b4ecd2;padding:8px 13px;border-radius:6px;font-size:11px;white-space:nowrap}.button:hover{background:#294a3e}
@@ -1062,44 +1230,85 @@ grid-template-columns:1fr 1fr;gap:12px}.config .section-title{grid-column:1/-1;m
 .source-panel{display:grid;grid-template-columns:1fr 1fr;gap:18px}.source-panel .section-title{grid-column:1/-1;margin-bottom:0}
 .source-state{margin:0;padding:0;border:0}.explain{grid-template-columns:1fr;gap:18px}.local{font-size:8px}
 summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap{max-height:400px}
-.activity-tables{grid-template-columns:1fr}.source-panel{grid-template-columns:1fr}}
+.activity-tables{grid-template-columns:1fr}.source-legend{grid-column:1/-1}
+.source-panel #ai-sources{display:contents}}
+@media(max-width:500px){.setup-grid,.usage-scopes{grid-template-columns:1fr}.nav-links{gap:10px}
+.source-strip{gap:10px 16px}.nav-links .local{display:none}}
+@media(max-width:390px){.config{grid-template-columns:1fr}}
+.accounts{margin:0 0 16px}.accounts>summary{padding:16px 20px}
+.accounts .control{margin-bottom:12px}.accounts input[readonly]{color:var(--muted)}
+.profile-error{font-size:11px;color:#e2b570;margin:10px 0 0;overflow-wrap:anywhere}
+.source-picker{border:0;padding:0;margin:0 0 18px;min-width:0}
+.source-picker legend{font-size:12px;color:#c8d2df;margin-bottom:7px}
+.source-picker label{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:11px}
+.source-picker input{accent-color:var(--green);margin:0}
+@media(max-width:700px){.source-picker{grid-column:1/-1;margin:0;
+display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 </style>
 </head>
 <body>
 <div class="shell">
 <nav><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>CodeStats</div>
-<span class="local" id="environment">CARD BUILDER</span></nav>
-<header class="hero"><div><div class="eyebrow">The unified developer card</div><h1>Build your card.</h1>
-<p>Your coding hours and GitHub languages, side by side.<br>Choose the appearance, then copy your README Markdown.</p></div>
-<div class="identity"><strong id="identity">Loading profile</strong><small>WakaTime × GitHub</small></div></header>
+<div class="nav-links"><a href="${docs}DEPLOYMENT.md" target="_blank" rel="noopener noreferrer">Setup guide ↗</a><span class="local" id="environment">CARD BUILDER</span></div></nav>
+<header class="hero"><div><div class="eyebrow">Four sources. One developer card.</div><h1>Build your card.</h1>
+<p>GitHub activity, WakaTime coding hours, Codex and OpenRouter usage.<br>Choose your style, then copy one Markdown snippet.</p>
+<div class="source-strip" aria-label="Supported sources"><span>${sourceIcon(GITHUB_ICON)}GitHub</span><span>${sourceIcon(CLOCK_ICON)}WakaTime</span><span>${sourceIcon(PROVIDER_ICONS.codex, 24)}Codex</span><span>${sourceIcon(PROVIDER_ICONS.openrouter, 24)}OpenRouter</span></div></div>
+<div class="identity"><strong id="identity">Loading profile</strong><small id="enabled-sources">Four source types · independent snapshots</small></div></header>
 <div class="layout">
 <aside>
+<details class="accounts" id="accounts"><summary>Accounts</summary>
+<div class="detail-body"><div class="control"><label for="account-mode">Account mode</label>
+<select id="account-mode"><option value="configured">Server configuration</option>
+<option value="public">Public IDs</option></select></div>
+<div class="control"><label for="github-account">GitHub username</label>
+<input id="github-account" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" readonly></div>
+<div class="control"><label for="wakatime-account">WakaTime username</label>
+<input id="wakatime-account" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" readonly></div>
+<div class="control"><label for="codex-account">Codex ID</label>
+<input id="codex-account" type="text" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" readonly></div>
+<p class="detail-note" id="account-help">Tokens stay in server settings. Public usernames use separate, request-driven caches.</p>
+<p class="detail-note"><a id="codex-profile-link" hidden target="_blank" rel="noopener noreferrer">Open Codex profile ↗</a></p>
+<button class="button" id="apply-profile" type="button">Preview profile</button>
+<p class="profile-error" id="profile-error" role="alert" hidden></p></div></details>
 <form class="config" id="controls"><h2 class="section-title">Shape your card</h2>
-<div class="control"><label for="range">Time range</label><select id="range"><option value="all_time">All time</option>
-<option value="last_7_days">Last 7 days</option><option value="last_30_days">Last 30 days</option></select></div>
+<fieldset class="source-picker"><legend>Sources</legend>
+<label><input type="checkbox" id="source-github" value="github" checked> GitHub</label>
+<label><input type="checkbox" id="source-wakatime" value="wakatime" checked> WakaTime</label>
+<label><input type="checkbox" id="source-codex" value="codex" checked> Codex</label>
+<label><input type="checkbox" id="source-openrouter" value="openrouter" checked> OpenRouter</label>
+</fieldset>
+<div class="control"><label for="range">WakaTime range</label><select id="range" aria-describedby="range-help"><option value="all_time">All time</option>
+<option value="last_7_days">Last 7 days</option><option value="last_30_days">Last 30 days</option></select><small class="control-hint" id="range-help">GitHub and AI periods stay independent.</small></div>
 <div class="control"><label for="theme">Appearance</label><select id="theme"><option value="transparent">Transparent</option>
 <option value="dark">Midnight</option><option value="light">Paper</option></select></div>
 <div class="control"><label for="header">Profile header</label><select id="header">
 <option value="true">Show</option><option value="false">Hide</option></select></div>
 <div class="control"><label for="view">View</label><select id="view"><option value="overview">Overview</option>
-<option value="languages">Language detail</option><option value="activity">GitHub activity</option></select></div>
+<option value="github">GitHub</option><option value="wakatime">WakaTime</option>
+<option value="codex">Codex</option><option value="openrouter">OpenRouter</option>
+<optgroup label="Expanded details"><option value="languages">Language detail</option>
+<option value="activity">GitHub activity</option></optgroup></select></div>
 <div class="control"><label for="sort">Language order</label><select id="sort"><option value="code">GitHub code first</option>
 <option value="time">Coding time first</option>
 <option value="alternating">Selection order</option>
 <option value="name">Alphabetical</option></select></div>
 </form>
-<section class="source-panel"><h2 class="section-title">Source status</h2><p class="detail-note">GitHub has two cached datasets. Each connected service keeps its own successful snapshot.</p>
-<div class="source-state"><div class="source-head"><span>GitHub · repositories</span><span class="badge" id="github-status">Loading</span></div>
-<small id="github-time">Waiting for source</small><small id="github-error"></small></div>
-<div class="source-state"><div class="source-head"><span>GitHub · activity</span><span class="badge" id="githubActivity-status">Loading</span></div>
-<small id="githubActivity-time">Waiting for source</small><small id="githubActivity-error"></small></div>
-<div class="source-state"><div class="source-head"><span>WakaTime</span><span class="badge" id="wakatime-status">Loading</span></div>
-<small id="wakatime-time">Waiting for source</small><small id="wakatime-error"></small></div><div id="ai-sources"></div></section>
+<section class="source-panel" aria-label="Source connections"><h2 class="section-title">Your sources</h2>
+<p class="source-legend">Fresh: current snapshot. Stale: saved data. Unavailable: no saved data. Partial: missing GitHub metrics. Each service refreshes independently.</p>
+<div class="source-state" data-source-provider="github"><div class="source-head"><span class="source-name">${sourceIcon(GITHUB_ICON)}GitHub</span><span class="badge" id="github-provider-status">Loading</span></div>
+<small>Profile, repository code and personal activity.</small>
+<details class="source-datasets" id="github-datasets"><summary>Repository &amp; activity status</summary>
+<div class="source-dataset"><div class="source-dataset-head"><span>Repositories</span><span class="badge" id="github-status">Loading</span></div><small id="github-time">Waiting for source</small><small id="github-error"></small></div>
+<div class="source-dataset"><div class="source-dataset-head"><span>Personal activity</span><span class="badge" id="githubActivity-status">Loading</span></div><small id="githubActivity-time">Waiting for source</small><small id="githubActivity-error"></small></div></details>
+<a class="source-setup" href="${docs}DEPLOYMENT.md#github" target="_blank" rel="noopener noreferrer">GitHub setup ↗</a></div>
+<div class="source-state" data-source-provider="wakatime"><div class="source-head"><span class="source-name">${sourceIcon(CLOCK_ICON)}WakaTime</span><span class="badge" id="wakatime-status">Loading</span></div>
+<small>Coding time for your selected range.</small><small id="wakatime-time">Waiting for source</small><small id="wakatime-error"></small>
+<a class="source-setup" href="${docs}DEPLOYMENT.md#wakatime" target="_blank" rel="noopener noreferrer">WakaTime setup ↗</a></div><div id="ai-sources">${optionalPlaceholders}</div></section>
 </aside>
 <main>
 <div class="preview-label"><span>README card</span><a id="json-link" href="/api/stats?range=all_time" target="_blank" rel="noopener">View source JSON ↗</a></div>
-<div class="card-stage" id="stage"><div class="loading" id="loading">Fetching your first snapshot<span>Connecting GitHub and WakaTime.</span></div>
-<img id="card" alt="Unified WakaTime and GitHub profile statistics" hidden></div>
+<div class="card-stage" id="stage"><div class="loading" id="loading">Fetching your first snapshot<span>Reading your configured GitHub, WakaTime, Codex and OpenRouter sources.</span></div>
+<img id="card" alt="CodeStats developer card: GitHub, WakaTime and configured AI usage" hidden></div>
 <p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures current repository language bytes, not personally authored lines.</p>
 <details id="language-details"><summary>Language breakdown <small id="language-count">Waiting for data</small></summary>
 <div class="detail-body"><p class="detail-note">Related languages are summed first. Nine groups are selected by alternating GitHub and WakaTime ranks, starting with GitHub, then ordered by GitHub code bytes by default. Others includes every remaining group and unclassified time. Byte and time totals are fully represented, with separate denominators. Repo counts use the headline inventory, deduplicate within each group and may overlap across groups. Raw values remain in the source JSON. A dash means unavailable data.</p>
@@ -1116,13 +1325,24 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
 <details><summary>How these counts are defined</summary><div class="detail-body">
 <p class="detail-note">These counts describe different actions and periods; they are not added together. GitHub search, contribution eligibility, token permissions, and organization access can limit coverage. Language bytes describe current repository content, including other authors.</p>
 <dl class="metric-definitions" id="activity-definitions"></dl></div></details></div></details>
+<details id="ai-usage-details"><summary>AI usage <small id="ai-usage-summary">Waiting for sources</small></summary>
+<div class="detail-body"><p class="detail-note">Codex and OpenRouter keep their own reporting periods. Tokens and requests are different units; provider totals are never added together. A dash means unavailable, not zero.</p>
+<div class="table-wrap"><table class="usage-table"><thead><tr><th>Service</th><th>Metric</th><th>Value</th><th>Period</th></tr></thead><tbody id="ai-usage-body"></tbody></table></div>
+<div class="usage-scopes" id="ai-usage-scopes"></div></div></details>
 <details id="readme-details" open><summary>Add to your GitHub README <small>Copy and paste</small></summary>
 <div class="detail-body"><label for="public-url">Public HTTPS URL</label>
 <input id="public-url" type="url" value="https://stats.example.com" aria-describedby="url-note">
 <p><label><input id="include-details" type="checkbox"> Include expandable language and activity cards</label></p>
 <div class="snippet-head"><p id="url-note">Replace this after deployment. Localhost images cannot load on GitHub.</p>
 <button class="button" id="copy" type="button">Copy Markdown</button></div><pre id="snippet"></pre></div></details>
-<section class="explain"><div><b>Two honest percentages</b><p>Time share is WakaTime's tracked activity, including Other. Code share is GitHub's language bytes. Neither is an individual authorship or skill score.</p></div>
+<details id="source-setup-details"><summary>Connect your sources <small>Node or Cloudflare Workers</small></summary>
+<div class="detail-body"><div class="setup-grid">
+<section><h3>${sourceIcon(GITHUB_ICON)}GitHub</h3><p>Your profile, aggregate activity and repository language bytes. A server-side token enables the private data your account can access.</p><a href="${docs}DEPLOYMENT.md#github" target="_blank" rel="noopener noreferrer">Credentials and repository scope ↗</a></section>
+<section><h3>${sourceIcon(CLOCK_ICON)}WakaTime</h3><p>Coding time by language. Public statistics need no token; unpublished ranges need read-stats OAuth access. All time is the default.</p><a href="${docs}DEPLOYMENT.md#wakatime" target="_blank" rel="noopener noreferrer">Public and private statistics ↗</a></section>
+<section><h3>${sourceIcon(PROVIDER_ICONS.codex, 24)}Codex</h3><p>Lifetime account totals, peak usage, longest task and streaks. Read through your local Codex login, or sync aggregates to your Worker.</p><a href="${docs}AI-USAGE.md#codex" target="_blank" rel="noopener noreferrer">Enable Codex usage ↗</a></section>
+<section><h3>${sourceIcon(PROVIDER_ICONS.openrouter, 24)}OpenRouter</h3><p>Tokens, requests, averages and streaks across up to 367 completed UTC days. Requires a Management key, rather than a regular inference key.</p><a href="${docs}AI-USAGE.md#openrouter" target="_blank" rel="noopener noreferrer">Enable OpenRouter analytics ↗</a></section>
+</div><p class="setup-note">Configure credentials on your server. The generated Markdown contains only the public card URL. <a href="${docs}DEPLOYMENT.md" target="_blank" rel="noopener noreferrer">Full deployment guide ↗</a></p></div></details>
+<section class="explain"><div><b>Four sources, separate measures</b><p>GitHub measures activity and repository code. WakaTime measures coding time. Codex and OpenRouter report their own AI usage. Periods and totals stay separate.</p></div>
 <div><b>Freshness, made visible</b><p>Each source keeps its last successful snapshot. If an API is down, saved numbers remain visible with their own timestamp and a stale label.</p></div>
 <div><b>Made for your README</b><p>A single SVG works as a GitHub image. Native details sections reveal language and activity cards. The interactive controls live at /build; the homepage serves the image directly.</p></div></section>
 </main></div>
@@ -1137,6 +1357,44 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         theme: 'transparent', header: 'true',
         view: 'overview', sort: 'code', limit: '10' };
     const query = new URLSearchParams(location.search);
+    const services = ['github', 'wakatime', 'codex', 'openrouter'];
+    const accountServices = ['github', 'wakatime', 'codex'];
+    const normalizeAccount = ${normalizeProfileAccount.toString()};
+    let publicMode = accountServices.some(service => query.has(service));
+    let appliedAccounts = {};
+    let configuredAccounts = {};
+    let explicitSources = query.has('sources');
+    let selectedSources = explicitSources ? query.get('sources').split(',')
+        .map(value => value.trim().toLowerCase()) : services.slice();
+    for (const service of accountServices) {
+        if (query.has(service)) {
+            appliedAccounts[service] = normalizeAccount(service, query.get(service));
+        }
+    }
+    if (publicMode && !explicitSources) selectedSources = Object.keys(appliedAccounts);
+    function showAccountMode() {
+        const editingPublic = $('account-mode').value === 'public';
+        const accounts = editingPublic ? appliedAccounts : configuredAccounts;
+        for (const service of accountServices) {
+            $(service + '-account').readOnly = !editingPublic;
+            $(service + '-account').value = accounts[service] || '';
+        }
+        $('account-help').textContent = editingPublic
+            ? 'Public IDs never use the server owner’s tokens. Codex usage needs account access; OpenRouter needs a server Management key.'
+            : 'These accounts and all tokens are managed in server settings. No token is included in the image URL.';
+        const codex = accounts.codex;
+        $('codex-profile-link').hidden = !codex;
+        if (codex) $('codex-profile-link').href = 'https://chatgpt.com/u/'
+            + encodeURIComponent(codex);
+    }
+    function showSourceSelection() {
+        for (const service of services) {
+            $('source-' + service).checked = selectedSources.includes(service);
+        }
+    }
+    $('account-mode').value = publicMode ? 'public' : 'configured';
+    $('accounts').open = publicMode;
+    showAccountMode(); showSourceSelection();
     for (const id of controls) {
         const value = query.get(id) || defaults[id];
         if (Array.from($(id).options).some(option => option.value === value)) {
@@ -1146,6 +1404,15 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     let snapshot = null;
     let generation = 0;
     const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+    const number = ${number.toString()};
+    const tokenTotal = ${tokenTotal.toString()};
+    const usageDays = ${usageDays.toString()};
+    const taskDuration = ${taskDuration.toString()};
+    const usageMetrics = ${usageMetrics.toString()};
+    const usagePeriod = ${usagePeriod.toString()};
+    const usageLabels = ${JSON.stringify(AI_LABELS)};
+    const providerIcons = ${JSON.stringify(PROVIDER_ICONS)};
+    const docs = ${JSON.stringify(docs)};
     const languageIcons = ${JSON.stringify(LANGUAGE_ICONS)};
     const languageIcon = ${languageIcon.toString()};
     const codeSize = ${codeSize.toString()};
@@ -1160,14 +1427,22 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     const duration = (seconds) => fmt.format(Math.floor(seconds / 3600)) + 'h ' + Math.floor(seconds / 60) % 60 + 'm';
     const percentage = (value) => value === null ? '—' : value.toFixed(2) + '%';
     const date = (value) => value && !isNaN(Date.parse(value)) ? new Date(value).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'No successful snapshot yet';
-    const params = (theme, view) => new URLSearchParams({
-        range: $('range').value,
-        theme: theme || $('theme').value,
-        header: $('header').value,
-        view: view || $('view').value,
-        limit: '10',
-        sort: $('sort').value,
-    });
+    const params = (theme, view) => {
+        const values = new URLSearchParams({
+            range: $('range').value,
+            theme: theme || $('theme').value,
+            header: $('header').value,
+            view: view || $('view').value,
+            limit: '10', sort: $('sort').value,
+        });
+        if (publicMode) {
+            for (const service of accountServices) {
+                if (appliedAccounts[service]) values.set(service, appliedAccounts[service]);
+            }
+        }
+        if (explicitSources) values.set('sources', selectedSources.join(','));
+        return values;
+    };
     const tableRows = () => {
         return snapshot ? snapshot.languageRows || [] : [];
     };
@@ -1206,7 +1481,7 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
                 : 'saved data · refresh due' : 'unavailable';
         $('activity-summary').textContent = state;
         $('activity-source').textContent = 'GitHub activity · ' + state + ' · ' + date(source.lastSuccessAt)
-            + '. Authorship and repository metrics use the separate GitHub source timestamp.';
+            + '. Repository code and profile metrics have a separate GitHub snapshot.';
         $('activity-scope').textContent = (!data
             ? 'GitHub activity scope is unavailable. Organization and external-repository coverage depends on GitHub access. '
             : all
@@ -1281,55 +1556,144 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         $('stage').className = 'card-stage ' + $('theme').value;
         image.src = '/card.svg?' + params() + '&preview=' + Date.now();
         image.hidden = false;
-        $('json-link').href = '/api/stats?range=' + encodeURIComponent($('range').value);
+        $('json-link').href = '/api/stats?' + params();
         updateTable(); updateSnippet();
     }
+    function updateAIUsage() {
+        $('ai-usage-body').replaceChildren();
+        $('ai-usage-scopes').replaceChildren();
+        const services = ['codex', 'openrouter', 'anthropic']
+            .filter(service => snapshot.aiUsage && snapshot.aiUsage[service]);
+        $('ai-usage-summary').textContent = services.length
+            ? services.length + ' selected services · independent periods' : 'Not enabled';
+        for (const service of services) {
+            const source = snapshot.aiUsage[service];
+            const data = source.data;
+            for (const metric of usageMetrics(service, data)) {
+                const tr = document.createElement('tr');
+                tr.dataset.usageDetail = service;
+                tr.dataset.usageMetric = metric.key;
+                for (const value of [usageLabels[service], metric.label,
+                    metric.exact === 'unavailable' ? '—' : metric.exact,
+                    data ? usagePeriod(service, data) : 'Unavailable']) {
+                    const td = document.createElement('td');
+                    td.textContent = value;
+                    tr.append(td);
+                }
+                $('ai-usage-body').append(tr);
+            }
+            const section = document.createElement('section');
+            const title = document.createElement('strong');
+            title.textContent = usageLabels[service] + ' · ' + source.status;
+            const scope = document.createElement('p');
+            scope.className = 'detail-note';
+            scope.textContent = data ? data.scope : source.lastError
+                || 'No successful usage snapshot yet.';
+            const refreshed = document.createElement('p');
+            refreshed.className = 'detail-note';
+            refreshed.textContent = 'Last successful snapshot: ' + date(source.lastSuccessAt);
+            section.append(title, scope, refreshed);
+            $('ai-usage-scopes').append(section);
+        }
+        if (!services.length) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 4;
+            td.textContent = 'Enable Codex or OpenRouter to add AI usage to your card.';
+            tr.append(td); $('ai-usage-body').append(tr);
+        }
+    }
     function updateSources() {
+        const selected = snapshot.selectedSources || services;
+        if (!explicitSources) {
+            selectedSources = selected.slice(); showSourceSelection();
+        }
+        if (snapshot.profile && snapshot.profile.mode === 'configured') {
+            configuredAccounts = snapshot.profile.accounts;
+            if ($('account-mode').value === 'configured') showAccountMode();
+        }
         for (const name of ['github', 'githubActivity', 'wakatime']) {
             const source = name === 'githubActivity' ? activitySource() : snapshot[name];
-            $(name + '-status').textContent = source.status;
-            $(name + '-status').className = 'badge ' + source.status;
-            $(name + '-time').textContent = date(source.lastSuccessAt);
+            const enabled = selected.includes(name === 'githubActivity' ? 'github' : name);
+            $(name + '-status').textContent = enabled ? source.status : 'Not selected';
+            $(name + '-status').className = 'badge ' + (enabled ? source.status : 'not-enabled');
+            $(name + '-time').textContent = enabled ? date(source.lastSuccessAt) : '';
             $(name + '-error').textContent = source.lastError || '';
         }
+        const githubSources = [snapshot.github, activitySource()];
+        const githubState = !selected.includes('github') ? 'not-enabled'
+            : snapshot.github.data && snapshot.github.data.languageCoverage === 'unavailable' ? 'partial'
+            : githubSources.every(source => !source.data) ? 'unavailable'
+            : githubSources.some(source => !source.data) ? 'partial'
+            : githubSources.some(source => source.status !== 'fresh') ? 'stale' : 'fresh';
+        $('github-provider-status').textContent = githubState === 'not-enabled' ? 'Not selected' : githubState;
+        $('github-provider-status').className = 'badge ' + githubState;
+        $('github-datasets').open = githubState !== 'fresh';
         const aiPanels = [];
         for (const [service, label] of [
-            ['openrouter', 'OpenRouter'], ['codex', 'Codex'],
+            ['codex', 'Codex'], ['openrouter', 'OpenRouter'],
             ['anthropic', 'Anthropic API'],
         ]) {
             const source = snapshot.aiUsage && snapshot.aiUsage[service];
-            if (!source) continue;
+            if (!source && service === 'anthropic') continue;
             const panel = document.createElement('div');
             panel.className = 'source-state';
-            panel.dataset.usageSource = service;
+            panel.dataset.sourceProvider = service;
+            if (source) panel.dataset.usageSource = service;
             const head = document.createElement('div');
             head.className = 'source-head';
             const name = document.createElement('span');
-            name.textContent = label;
+            name.className = 'source-name';
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            icon.setAttribute('class', 'source-icon');
+            icon.setAttribute('viewBox', '0 0 24 24');
+            icon.setAttribute('aria-hidden', 'true');
+            icon.setAttribute('fill', 'currentColor');
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', providerIcons[service]);
+            icon.append(path);
+            name.append(icon, document.createTextNode(label));
             const badge = document.createElement('span');
             badge.id = service + '-status';
-            badge.className = 'badge ' + source.status;
-            badge.textContent = source.status;
+            badge.className = 'badge ' + (source ? source.status : 'not-enabled');
+            badge.textContent = source ? source.status
+                : selected.includes(service) ? 'Not enabled' : 'Not selected';
             head.append(name, badge);
             const refreshed = document.createElement('small');
             refreshed.id = service + '-time';
-            refreshed.textContent = date(source.lastSuccessAt);
+            refreshed.textContent = source ? date(source.lastSuccessAt)
+                : service === 'codex' ? 'Local Codex login or aggregate sync.'
+                : 'OpenRouter Management key required.';
             const period = document.createElement('small');
-            period.textContent = source.data ? source.data.period : '';
+            period.textContent = source && source.data ? usagePeriod(service, source.data) : '';
             const error = document.createElement('small');
             error.id = service + '-error';
-            error.textContent = source.lastError || '';
-            panel.append(head, refreshed, period, error);
+            error.textContent = source && source.lastError || '';
+            const setup = document.createElement('a');
+            setup.className = 'source-setup';
+            setup.href = docs + 'AI-USAGE.md#'
+                + (service === 'anthropic' ? 'advanced-anthropic-api' : service);
+            setup.target = '_blank';
+            setup.rel = 'noopener noreferrer';
+            setup.textContent = source ? 'Setup & metrics ↗' : 'Enable ' + label + ' ↗';
+            panel.append(head, refreshed, period, error, setup);
             aiPanels.push(panel);
         }
         $('ai-sources').replaceChildren(...aiPanels);
-        $('wakatime-status').closest('.source-state').classList
-            .toggle('last-source', aiPanels.length === 0);
+        const enabled = selected.filter(service => service === 'github'
+            ? snapshot.github.data : service === 'wakatime' ? snapshot.wakatime.data
+            : snapshot.aiUsage && snapshot.aiUsage[service] && snapshot.aiUsage[service].data).length;
+        const extensions = snapshot.aiUsage && snapshot.aiUsage.anthropic ? ' · Anthropic extension' : '';
+        $('enabled-sources').textContent = selected.length + ' sources selected · '
+            + enabled + ' with saved data' + extensions;
         const github = snapshot.github.data;
         const waka = snapshot.wakatime.data;
-        $('identity').textContent = '@' + (github ? github.username : waka ? waka.username : 'profile');
+        const accounts = snapshot.profile && snapshot.profile.accounts || {};
+        $('identity').textContent = '@' + (github ? github.username : waka ? waka.username
+            : accounts.codex || accounts.github || accounts.wakatime || 'profile');
         const all = github && github.visibility === 'all';
-        let note = 'WakaTime time share includes Other. GitHub language share uses current repository bytes.';
+        let note = 'GitHub code bytes and WakaTime hours use separate totals. '
+            + 'Each bar column rounds its scale upward in 10% steps; labels show true source shares.';
         if (github && github.collectionVersion >= 4) {
             note += all ? ' Public + private repositories in the configured scope.'
                 : ' Public repositories in the configured scope.';
@@ -1338,20 +1702,25 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
         if (github && github.collectionVersion >= 5) {
             note += ' Stars count owned repositories only.';
         }
+        if (github && github.languageCoverage === 'unavailable') {
+            note += ' Anonymous GitHub supplies public profile, owned repositories and search counts; language bytes, calendar and review metrics need a server token.';
+        }
         if (waka && waka.end) note += ' WakaTime through ' + waka.end.slice(0, 10) + '.';
         else if (waka && waka.rangeLabel) note += ' WakaTime: ' + waka.rangeLabel + '.';
         if (waka && !waka.includesToday) note += ' Today is excluded by the source.';
         if (!waka) note += ' This WakaTime range is unavailable; no other range is substituted.';
-        const staleSources = [snapshot.github, snapshot.wakatime].filter((source) => source.status === 'stale');
+        const staleSources = [snapshot.github, activitySource(), snapshot.wakatime,
+            ...Object.values(snapshot.aiUsage || {})].filter(source => source.status === 'stale');
         if (staleSources.some((source) => source.lastError)) note += ' Saved data remains visible after an unsuccessful source refresh.';
         else if (staleSources.length) note += ' Saved data remains visible while a refresh is due.';
-        $('range-note').textContent = note;
+        $('range-note').textContent = note + ' WakaTime range changes do not change GitHub or AI reporting periods.';
         $('footer-scope').textContent = all || activitySource().data && activitySource().data.visibility === 'all'
             ? 'Public + private aggregates. Independently refreshed.' : 'Public aggregates. Independently refreshed.';
-        updateActivity();
+        updateActivity(); updateAIUsage();
     }
     async function load() {
         const current = ++generation;
+        $('card').hidden = true;
         $('loading').hidden = false;
         $('loading').classList.remove('error');
         $('loading').replaceChildren(document.createTextNode('Loading your snapshot…'));
@@ -1386,6 +1755,40 @@ summary{padding:15px}summary small{margin-right:12px}footer{gap:18px}.table-wrap
     }
     for (const id of controls) $(id).addEventListener('change', () =>
         ['range', 'sort'].includes(id) ? load() : updateCard());
+    $('account-mode').addEventListener('change', showAccountMode);
+    $('apply-profile').addEventListener('click', () => {
+        try {
+            const nextPublic = $('account-mode').value === 'public';
+            const accounts = {};
+            if (nextPublic) {
+                for (const service of accountServices) {
+                    const value = $(service + '-account').value.trim();
+                    if (value) accounts[service] = normalizeAccount(service, value);
+                }
+                if (!Object.keys(accounts).length) throw new Error('Enter at least one public username or ID.');
+            }
+            publicMode = nextPublic; appliedAccounts = accounts;
+            if (!explicitSources) selectedSources = nextPublic
+                ? Object.keys(accounts) : services.slice();
+            showAccountMode(); showSourceSelection();
+            $('profile-error').hidden = true;
+            for (const id of ['language-body', 'activity-body', 'contribution-years',
+                'ai-usage-body', 'ai-usage-scopes', 'activity-definitions']) $(id).replaceChildren();
+            updateSnippet(); load();
+        } catch (error) {
+            $('profile-error').textContent = error.message;
+            $('profile-error').hidden = false;
+        }
+    });
+    for (const service of services) $('source-' + service).addEventListener('change', () => {
+        const next = services.filter(name => $('source-' + name).checked);
+        if (!next.length) {
+            $('source-' + service).checked = true;
+            return;
+        }
+        explicitSources = true; selectedSources = next;
+        updateSnippet(); load();
+    });
     $('controls').addEventListener('submit', (event) => event.preventDefault());
     $('public-url').addEventListener('input', updateSnippet);
     $('include-details').addEventListener('change', updateSnippet);

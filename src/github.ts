@@ -127,12 +127,12 @@ export async function fetchGitHub(
     if (all) {
         result.repositories = count(object(user.repositories).totalCount);
         result.privateRepositories = count(object(user.privateRepositories).totalCount);
-        if (result.publicRepositories + result.privateRepositories
+        if (count(result.publicRepositories) + result.privateRepositories
             !== result.repositories) {
             throw new UpstreamError('GitHub repository totals are inconsistent.');
         }
     }
-    if (result.mergedPullRequests > result.pullRequests) {
+    if (count(result.mergedPullRequests) > count(result.pullRequests)) {
         throw new UpstreamError('GitHub returned inconsistent pull request counts.');
     }
     const languages = new Map<string, { bytes: number; color: string }>();
@@ -179,11 +179,11 @@ export async function fetchGitHub(
             const repositoryStars = count(repo.stargazerCount);
             if (text(object(repo.owner).login).toLowerCase()
                 === username.toLowerCase()) {
-                result.stars = count(result.stars + repositoryStars);
+                result.stars = count(count(result.stars) + repositoryStars);
             }
             result.analyzedForks = (result.analyzedForks ?? 0) + Number(repo.isFork);
             if (!repo.isFork) {
-                result.forks = count(result.forks + count(repo.forkCount));
+                result.forks = count(count(result.forks) + count(repo.forkCount));
             }
             let languageConnection = object(repo.languages);
             const expectedBytes = count(languageConnection.totalSize);

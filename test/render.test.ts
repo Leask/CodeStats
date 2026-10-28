@@ -97,9 +97,17 @@ function usageSnapshot(services: AIService[]): StatsSnapshot {
             lastAttemptAt: '2026-10-25T16:55:00Z', lastError: null, retryAt: null,
             data: {
                 service, label: service, totalTokens: 131_320_846_898,
+                ...(service === 'openrouter' ? { totalPrompts: 126_630 } : {}),
                 period: service === 'codex' ? 'Lifetime tokens' : 'Last 30 days',
                 since: service === 'codex' ? null : '2026-09-25T00:00:00Z',
                 until: '2026-10-25T00:00:00Z', scope: 'Provider aggregate tokens',
+                ...(service === 'codex' ? { summary: {
+                    peakDailyTokens: 5_262_475_191, longestRunningTurnSec: 203_454,
+                    longestStreakDays: 109, currentStreakDays: 82,
+                } } : service === 'openrouter' ? { summary: {
+                    longestStreakDays: 109, averageDailyTokens: 1_234_567,
+                    averageWeeklyTokens: 8_765_432,
+                } } : {}),
             },
         };
     }
@@ -127,21 +135,109 @@ describe('optional token usage display', () => {
         expect(svg.indexOf('data-ai-usage-summary'))
             .toBeGreaterThan(svg.lastIndexOf('data-language-row='));
         expect(svg.indexOf('data-ai-usage-summary'))
-            .toBeLessThan(svg.indexOf('data-profile-rank='));
-        expect(svg).toContain('>OpenRouter · tokens</text>');
+            .toBeGreaterThan(svg.indexOf('data-profile-rank='));
+        expect(svg).toContain('data-token-label="true">OpenRouter</text>');
         expect(svg).toContain('>Last 30 days</text>');
-        if (count >= 2) expect(svg).toContain('>Lifetime tokens</text>');
+        if (count >= 2) expect(svg).toContain('>Lifetime</text>');
         expect(svg.match(/data-refresh-line=/g)).toHaveLength(1);
         const height = Number(svg.match(/height="(\d+)"/)![1]);
         const hidden = renderCard(data, { ...options, header: false });
-        expect(height - Number(hidden.match(/height="(\d+)"/)![1])).toBe(100);
+        expect(height - Number(hidden.match(/height="(\d+)"/)![1])).toBe(62);
         for (const match of svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"/g)) {
-            expect(Number(match[1])).toBeGreaterThanOrEqual(32);
+            // Right-aligned SVG groups use their own local coordinates.
+            expect(Number(match[1])).toBeGreaterThanOrEqual(0);
             expect(Number(match[1])).toBeLessThanOrEqual(848);
             expect(Number(match[2])).toBeLessThan(height);
         }
         expect(new Set([...svg.matchAll(/font-size="([\d.]+)"/g)]
             .map(match => Number(match[1])))).toEqual(new Set([27, 13, 11]));
+    });
+
+    it('renders both five-metric rows with Codex first and totals first', () => {
+        const svg = renderCard(usageSnapshot(['openrouter', 'codex', 'anthropic']), options);
+        const block = (service: string, next: string) => svg.slice(
+            svg.indexOf(`data-token-service="${service}"`),
+            svg.indexOf(next, svg.indexOf(`data-token-service="${service}"`) + 1),
+        );
+        const openrouter = block('openrouter', 'data-token-service="anthropic"');
+        const codex = block('codex', 'data-token-service="openrouter"');
+        const anthropic = block('anthropic', 'data-section="footer"');
+        const keys = (body: string) => [...body.matchAll(/data-usage-metric="([^"]+)"/g)]
+            .map(match => match[1]);
+        expect(keys(openrouter)).toEqual([
+            'totalTokens', 'averageDailyTokens', 'averageWeeklyTokens',
+            'totalPrompts', 'longestStreakDays',
+        ]);
+        expect(keys(codex)).toEqual([
+            'totalTokens', 'peakDailyTokens', 'longestRunningTurnSec',
+            'longestStreakDays', 'currentStreakDays',
+        ]);
+        expect(keys(anthropic)).toEqual(['totalTokens']);
+        for (const label of ['Total tokens', 'Peak tokens', 'Longest task',
+            'Longest streak', 'Current streak']) expect(codex).toContain('>' + label + '</text>');
+        expect(codex).toContain('>131.3B</text>');
+        expect(codex).toContain('>5.3B</text>');
+        expect(codex).toContain('>56h31m</text>');
+        expect(codex).toContain('>109 days</text>');
+        expect(codex).toContain('>82 days</text>');
+        expect(codex).toContain('Longest task: 203,454 seconds');
+        expect(openrouter).toContain('>1.2M</text>');
+        expect(openrouter).toContain('>8.8M</text>');
+        expect(openrouter).toContain('>126.6K</text>');
+        expect(openrouter).toContain('Total prompts: 126,630 requests');
+        expect(openrouter).toContain('>Tokens/day</text>');
+        expect(openrouter).toContain('>Tokens/week</text>');
+        expect(openrouter).not.toContain('Lifetime tokens');
+        expect(codex).toContain('>Lifetime</text>');
+        expect(codex).not.toContain('>Lifetime tokens</text>');
+        const footer = svg.slice(svg.indexOf('data-refresh-times'));
+        expect(footer.indexOf('Codex:')).toBeLessThan(footer.indexOf('OpenRouter:'));
+        for (const service of ['codex', 'openrouter', 'anthropic']) {
+            expect(svg).toContain(`data-provider-icon="${service}"`);
+        }
+    });
+
+    it('keeps rank at the upper right and uses shared section padding', () => {
+        const data = usageSnapshot(['openrouter', 'codex']);
+        for (const header of [true, false]) {
+            const svg = renderCard(data, { ...options, header });
+            expect(svg).toContain('data-rank-placement="top-right"');
+            expect(svg.indexOf('data-profile-rank'))
+                .toBeLessThan(svg.indexOf('data-summary-metric'));
+            expect(svg.match(/data-section-padding="20"/g)).toHaveLength(5);
+            const sections = [...svg.matchAll(/data-section="([^"]+)"[^>]*data-section-top="([\d.-]+)"[^>]*data-section-bottom="([\d.-]+)"/g)];
+            const byName = new Map(sections.map(section => [section[1], {
+                top: Number(section[2]), bottom: Number(section[3]),
+            }]));
+            expect(byName.get('languages')!.top - byName.get('summary')!.bottom).toBe(20);
+            expect(byName.get('usage-codex')!.top).toBe(byName.get('languages')!.bottom);
+            expect(byName.get('usage-openrouter')!.top).toBe(byName.get('usage-codex')!.bottom);
+            expect(byName.get('usage-codex')!.bottom - byName.get('usage-codex')!.top).toBe(122);
+            expect(svg.match(/data-refresh-line=/g)).toHaveLength(1);
+        }
+    });
+
+    it('bounds wide long badge identities while retaining the full username in the title', () => {
+        const data = activitySnapshot();
+        data.github.data!.username = 'W'.repeat(38);
+        const svg = renderCard(data, options);
+        expect(svg).toContain('<title>@' + 'W'.repeat(38) + '. Estimated percentile');
+        expect(svg).toContain('>@' + 'W'.repeat(23) + '… · Top ');
+        expect(svg).not.toContain('>@' + 'W'.repeat(38) + ' · Top ');
+        expect(svg).toContain('data-rank-placement="top-right"');
+    });
+
+    it('preserves old range totals while leaving missing native summary fields unknown', () => {
+        const data = usageSnapshot(['openrouter', 'codex']);
+        delete data.aiUsage!.openrouter!.data!.summary;
+        delete data.aiUsage!.openrouter!.data!.totalPrompts;
+        delete data.aiUsage!.codex!.data!.summary;
+        const svg = renderCard(data, options);
+        expect(svg.match(/>—<\/text>/g)).toHaveLength(8);
+        expect(svg).toContain('>Last 30 days</text>');
+        expect(svg.match(/data-token-total="true">131\.3B<\/text>/g)).toHaveLength(2);
+        expect(svg).not.toContain('>0 days</text>');
+        expect(svg).not.toContain('>0m</text>');
     });
 
     it('keeps real zero, unknown and stale totals distinct, with independent times', () => {
@@ -196,7 +292,7 @@ describe('optional token usage display', () => {
         expect(svg).not.toContain('<script>');
         expect(svg).not.toContain('<image href=');
         expect(svg).toContain('&lt;script&gt;bad&lt;/script&gt;');
-        expect(svg).toContain('>Codex · tokens</text>');
+        expect(svg).toContain('data-token-label="true">Codex</text>');
         expect(renderPage()).toContain('id="ai-sources"');
         expect(renderPage()).toContain('snapshot.aiUsage[service]');
         expect(renderPage()).not.toContain('.innerHTML');
@@ -249,8 +345,12 @@ describe('language comparison', () => {
         const data = snapshot();
         data.wakatime.data!.languages[0].seconds = 4000;
         data.wakatime.data!.languages[1].seconds = 4000;
-        expect(languageScale([35.76, 10, 0])).toBe(35.8);
-        expect(languageScale([42.2, 42.20000000000001])).toBe(42.2);
+        expect(languageScale([35.76, 10, 0])).toBe(40);
+        expect(languageScale([39.7])).toBe(40);
+        expect(languageScale([42.1, 42.2])).toBe(50);
+        expect(languageScale([40, 40.00000000000001])).toBe(40);
+        expect(languageScale([0.01, 100])).toBe(100);
+        expect(languageScale([0.01])).toBe(10);
         expect(languageScale([null, null])).toBeNull();
         expect(languageScale([0, 0])).toBe(0);
         const svg = renderCard(data, options);
@@ -261,10 +361,10 @@ describe('language comparison', () => {
         const width = (value: string, kind: string) => Number(
             value.match(new RegExp(`data-${kind}-bar="true"[^>]*width="([\\d.]+)"`))![1],
         );
-        expect(width(row('JavaScript/TypeScript'), 'code')).toBe(249);
-        expect(width(row('Shell'), 'code')).toBeCloseTo(249 * 20 / 50, 2);
-        expect(width(row('Shell'), 'time')).toBe(210);
-        expect(width(row('JavaScript/TypeScript'), 'time')).toBe(105);
+        expect(width(row('JavaScript/TypeScript'), 'code')).toBe(298);
+        expect(width(row('Shell'), 'code')).toBeCloseTo(298 * 20 / 50, 2);
+        expect(width(row('Shell'), 'time')).toBe(290);
+        expect(width(row('JavaScript/TypeScript'), 'time')).toBe(145);
         expect(row('JavaScript/TypeScript')).toContain('>50.0%</text>');
         expect(row('JavaScript/TypeScript')).toContain('>20.0%</text>');
         expect(row('JavaScript/TypeScript'))
@@ -587,7 +687,7 @@ describe('safe README SVG', () => {
             expect(hidden).toContain('data-refresh-times="true"');
             expect(hidden).toContain('data-project-credit="true"');
             const height = (svg: string) => Number(svg.match(/height="(\d+)"/)![1]);
-            expect(height(full) - height(hidden)).toBe(100);
+            expect(height(full) - height(hidden)).toBe(62);
             expect(renderCard(data, { ...options, view, header: true })).toBe(full);
         },
     );
@@ -748,6 +848,13 @@ describe('safe README SVG', () => {
         expect(html).not.toContain('.innerHTML');
         expect(html).not.toContain('https://cdn.');
         expect(html).toContain('Build your card.');
+        expect(html).toContain('Four sources. One developer card.');
+        expect(html.match(/data-source-provider="/g)).toHaveLength(4);
+        expect(html).toContain('id="github-datasets"');
+        expect(html).toContain('id="ai-usage-details"');
+        expect(html).toContain('id="source-setup-details"');
+        expect(html).toContain('WakaTime range');
+        expect(html).not.toContain('WakaTime × GitHub');
         expect(html).toContain('<details id="readme-details" open>');
         expect(html).toContain("theme: 'transparent'");
         expect(html).not.toContain('Your last saved snapshot is retained on the server.');
@@ -858,7 +965,7 @@ describe('GitHub personal activity', () => {
         expect(groups.map(group => group[2].match(/>([^<]+)<\/text>/)![1]))
             .toEqual(['2', '456,789', '240', '98,765', '80', '50', '20', '1,250']);
         expect(groups.map(group => Number(group[2].match(/<text [^>]* y="(\d+)"/)![1])))
-            .toEqual([166, 166, 166, 166, 230, 230, 230, 230]);
+            .toEqual([174, 174, 174, 174, 238, 238, 238, 238]);
         expect(groups.every(group => [...group[2].matchAll(/<text\b/g)].length === 2))
             .toBe(true);
         expect(svg.match(/data-summary-icon="/g)).toHaveLength(8);
@@ -868,12 +975,12 @@ describe('GitHub personal activity', () => {
         const data = activitySnapshot();
         const rank = profileRank(data.github.data, data.githubActivity!.data)!;
         const svg = renderCard(data, options);
-        expect(svg).toContain('data-avatar-rank-rim="true" cx="66" cy="78" r="34"');
+        expect(svg).toContain('data-avatar-rank-rim="true" cx="67.5" cy="87.5" r="34"');
         expect(svg).toContain('stroke-width="3" opacity="0.2"');
         expect(svg).toContain('pathLength="100" stroke-dasharray="100"');
         const offset = svg.match(/stroke-dashoffset="([\d.]+)"/)![1];
         expect(100 - Number(offset)).toBeCloseTo(100 - rank.percentile, 5);
-        expect(svg).toContain('transform="rotate(-90 66 78)"');
+        expect(svg).toContain('transform="rotate(-90 67.5 87.5)"');
         expect(svg).toContain('prefers-reduced-motion:reduce');
         const unknown = renderCard(snapshot(), options);
         expect(unknown).toContain('data-avatar-rank-rim="true"');
@@ -887,7 +994,7 @@ describe('GitHub personal activity', () => {
         expect(renderCard(data, options)).toContain('stroke-dashoffset="100.000000"');
     });
 
-    it('renders two profile lines and keeps the rank in the footer', () => {
+    it('renders two profile lines and keeps rank above the summary', () => {
         const data = activitySnapshot();
         Object.assign(data.github.data!, {
             name: 'Full Name', bio: 'Builds <tools>', profileStatus: 'Fallback status',
@@ -895,15 +1002,15 @@ describe('GitHub personal activity', () => {
         });
         const svg = renderCard(data, options);
         expect(svg).toContain('data-github-avatar="true"');
-        expect(svg).toContain('<circle cx="66" cy="78" r="34"/>');
+        expect(svg).toContain('<circle cx="67.5" cy="87.5" r="34"/>');
         expect(svg).toContain('>Full Name</text>');
-        expect(svg.match(/@Leask/g)).toHaveLength(1);
+        expect(svg.match(/>@Leask · Top/g)).toHaveLength(1);
         expect(svg).toContain('Builds &lt;tools&gt;');
         expect(svg).not.toContain('Fallback status');
         expect(svg).toContain('>@Leask · Top 14.39% · A</text>');
         expect(svg.match(/data-profile-rank=/g)).toHaveLength(1);
         expect(svg.indexOf('data-profile-rank'))
-            .toBeGreaterThan(svg.indexOf('data-summary-metric'));
+            .toBeLessThan(svg.indexOf('data-summary-metric'));
         data.github.data!.bio = ' ';
         expect(renderCard(data, options)).toContain('Fallback status');
         data.github.data!.profileStatus = null;

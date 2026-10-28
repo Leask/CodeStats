@@ -2,29 +2,50 @@
 
 ## Unreleased
 
-- Add optional OpenRouter account analytics, local Codex account lifetime tokens
-  and Anthropic API organization usage, each with its own last-good cache and
-  refresh time. Codex Worker sync transfers numeric aggregates only, using a
-  separate authenticated import endpoint.
-- Independently scale GitHub/WakaTime bars to their largest displayed share;
-  state each full-track percentage in its heading and preserve true shares.
-- Count repositories per merged language and Others using deduplicated unions
-  over the headline inventory, without extra upstream requests. Keep membership
-  aggregates private and expose only computed rows. Preserve old cached data
-  during the collection upgrade, with unknown counts shown as a dash.
-- Put repo counts below language names and bytes/time below their own bars;
-  share server-computed rows with the builder and expanded detail table.
-- Preserve dashboard Variables on deploy, retry a formerly missing GitHub token
-  immediately once configured, and group Makefile with C/C++ and Awk with Shell.
-- Serve the transparent README SVG directly at `/` and `/card.svg`; move the
-  interactive card builder to `/build` and `/build/`.
-- Generate one compact linked Markdown image by default, omitting default URL
-  parameters. Expandable language/activity cards are optional, and the snippet
-  remains available when statistics cannot load.
-- Preserve browser helper source in Worker bundles with `keep_names: false`
-  and `minify: false`, avoiding an undefined `__name` in the builder.
-- Clarify runtime Worker secrets and the optional Workers Builds dashboard
-  setup, including the distinction from build-only secrets.
+- Support public GitHub/WakaTime usernames and Codex IDs in the builder and
+  URLs, isolated from configured credentials, imports and private caches.
+  Add four source views and source-subset selection while retaining overview
+  and legacy language/activity views. Public profiles refresh on demand only.
+- Add bounded anonymous GitHub profile/repository/Search collection; unsupported
+  bytes, calendar and extended activity remain unknown rather than zero.
+  Prefer complete named public WakaTime statistics with owner-verified OAuth
+  fallback for the same range, including token-only identity resolution.
+- Add opt-in configured-profile refresh on Node and a Worker scheduled handler;
+  no Cron Trigger is created automatically and Codex import age is preserved.
+- Present CodeStats as a four-source profile: GitHub, WakaTime, Codex and
+  OpenRouter. Upgrade builder guidance, source grouping, deployment documentation
+  and credential-free samples. GitHub repository/activity remain separate
+  datasets inside one service; optional usage integrations remain optional.
+- Add independent Codex, OpenRouter and optional Anthropic last-good usage
+  observations. Codex reads native local account summaries on Node and accepts
+  authenticated aggregate-only Worker imports using a separate sync secret.
+  Imported observation times are never refreshed merely by viewing the card.
+- Show Codex before OpenRouter, with five metrics each. OpenRouter places total
+  tokens, tokens/day and tokens/week before total prompts and longest streak;
+  Codex uses Lifetime and Total tokens labels. Keep unknown fields distinct
+  from zero, and retain prior totals while upgrading collection versions.
+- Calculate OpenRouter totals, request counts, daily/weekly averages and longest
+  streak from one unfiltered aggregate query over 367 completed UTC days by
+  default. Include inactive days in averages and state the reporting window.
+- Count merged-language and Others repositories using exact deduplicated unions
+  from the headline inventory, with no extra upstream calls. Keep membership
+  aggregates private, preserve older caches, and share computed language rows
+  between the builder and SVG.
+- Put repository counts below language names and bytes/time below their bars.
+  Scale each column independently to the next 10 percentage points, showing its
+  full-track scale while retaining true source-share labels.
+- Align the avatar and upper-right rank, use consistent card edges and section
+  spacing, and keep a 20px rank/overview gap without the profile header. Keep
+  refresh times and right-aligned project credit together when space permits.
+  Bundle provider brand icons locally with their artwork notices.
+- Refine the builder's dropdown arrows and text spacing. Serve transparent SVG
+  at `/` and `/card.svg`, with the builder at `/build`. Generate one linked
+  README image by default; expandable sections are opt-in and Markdown remains
+  available when statistics cannot load.
+- Preserve dashboard Variables on deploy, document runtime versus build secrets,
+  and keep Worker bundle helpers valid with `keep_names: false` / `minify: false`.
+  Retry a formerly missing GitHub credential once configured. Group Makefile
+  with C/C++ and Awk with Shell.
 
 ## v0.1.0 — 2026-10-26
 

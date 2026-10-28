@@ -18,11 +18,15 @@ function sequence(responses: Response[]) {
     return { fetcher, requests };
 }
 
-function openRouter(tokens: unknown = '1234', extra = {}) {
+function dailyUsage(rows: unknown[], extra = {}) {
     return Response.json({ data: {
-        data: [{ tokens_total: tokens }],
-        metadata: { row_count: 1, truncated: false }, ...extra,
+        data: rows, metadata: { row_count: rows.length, truncated: false }, ...extra,
     } });
+}
+
+function openRouter(tokens: unknown = '1234', extra = {}) {
+    return dailyUsage([{ date__day: '2026-10-01', tokens_total: tokens,
+        request_count: '5' }], extra);
 }
 
 function bucket(date = '2026-10-01', results: unknown[] = [{
@@ -45,20 +49,25 @@ afterEach(() => {
 });
 
 describe('OpenRouter aggregate usage', () => {
-    it('makes one unfiltered aggregate for 30 completed UTC days', async () => {
+    it('makes one unfiltered daily aggregate for 367 completed UTC days', async () => {
         const { fetcher, requests } = sequence([openRouter()]);
         const result = await fetchOpenRouterUsage(env, fetcher, NOW);
-        expect(result).toMatchObject({ service: 'openrouter', totalTokens: 1234,
-            period: 'Last 30 days', since: '2026-09-28T00:00:00.000Z',
-            until: '2026-10-28T00:00:00.000Z' });
+        expect(result).toMatchObject({ collectionVersion: 3,
+            service: 'openrouter', totalTokens: 1234, totalPrompts: 5,
+            period: 'Last 367 days', since: '2025-10-26T00:00:00.000Z',
+            until: '2026-10-28T00:00:00.000Z', summary: {
+                averageDailyTokens: 1234 / 367,
+                averageWeeklyTokens: 1234 / 367 * 7,
+                longestStreakDays: 1,
+            } });
         expect(requests).toHaveLength(1);
         expect(requests[0].url.href).toBe('https://openrouter.ai/api/v1/analytics/query');
         expect(requests[0].init).toMatchObject({ method: 'POST', redirect: 'manual',
             headers: { Authorization: 'Bearer management-test' } });
         expect(JSON.parse(String(requests[0].init.body))).toEqual({
-            metrics: ['tokens_total'], time_range: {
+            metrics: ['tokens_total', 'request_count'], granularity: 'day', time_range: {
                 start: result.since, end: result.until,
-            },
+            }, order_by: { field: 'date', direction: 'asc' }, limit: 1000,
         });
     });
 
@@ -67,8 +76,88 @@ describe('OpenRouter aggregate usage', () => {
         const result = await fetchOpenRouterUsage({ ...env,
             OPENROUTER_USAGE_SINCE: '2026-01-01' }, fetcher, () => NOW);
         expect(result).toMatchObject({ totalTokens: 0, period: 'Since 2026-01-01',
-            since: '2026-01-01T00:00:00.000Z', until: '2026-10-28T15:42:10.000Z' });
+            since: '2026-01-01T00:00:00.000Z', until: '2026-10-28T00:00:00.000Z' });
         expect(JSON.stringify(result)).not.toContain('management-test');
+    });
+
+    it('counts inactive days in averages and breaks streaks across gaps and zeroes', async () => {
+        const { fetcher } = sequence([dailyUsage([
+            { date__day: '2026-10-27', tokens_total: '40', request_count: '4' },
+            { date__day: '2026-10-23', tokens_total: 0, request_count: 0 },
+            { date__day: '2026-10-25', tokens_total: '30', request_count: 3 },
+            { date__day: '2026-10-22', tokens_total: 10, request_count: '1' },
+            { date__day: '2026-10-24T00:00:00.000Z', tokens_total: '20',
+                request_count: 2 },
+        ])]);
+        const result = await fetchOpenRouterUsage({ ...env,
+            OPENROUTER_USAGE_SINCE: '2026-10-20' }, fetcher, NOW);
+        expect(result).toMatchObject({ totalTokens: 100, totalPrompts: 10, summary: {
+            averageDailyTokens: 12.5, averageWeeklyTokens: 87.5,
+            longestStreakDays: 2,
+        } });
+        expect(result.scope).toContain('8 completed UTC days');
+    });
+
+    it('accepts a confirmed empty or all-zero report as zero usage', async () => {
+        for (const response of [dailyUsage([]), dailyUsage([
+            { date__day: '2026-10-01', tokens_total: 0, request_count: 0 },
+        ])]) {
+            const { fetcher } = sequence([response]);
+            expect(await fetchOpenRouterUsage(env, fetcher, NOW)).toMatchObject({
+                totalTokens: 0, totalPrompts: 0, summary: { averageDailyTokens: 0,
+                    averageWeeklyTokens: 0, longestStreakDays: 0 },
+            });
+        }
+    });
+
+    it('uses the entire permitted window without capping or dropping days', async () => {
+        const first = Date.parse('2025-10-26T00:00:00Z');
+        const rows = Array.from({ length: 367 }, (_, index) => ({
+            date__day: new Date(first + index * 86_400_000).toISOString().slice(0, 10),
+            tokens_total: '1', request_count: '2',
+        }));
+        const { fetcher } = sequence([dailyUsage(rows)]);
+        const result = await fetchOpenRouterUsage({ ...env,
+            OPENROUTER_USAGE_SINCE: '2025-10-26T00:00:00Z' }, fetcher, NOW);
+        expect(result).toMatchObject({ totalTokens: 367, totalPrompts: 734, summary: {
+            averageDailyTokens: 1, averageWeeklyTokens: 7, longestStreakDays: 367,
+        } });
+    });
+
+    it.each(['2025-10-25', '2026-10-28', '2026-10-27T01:00:00Z'])(
+        'rejects an excessive or incomplete daily interval %s before requesting', async since => {
+            const { fetcher, requests } = sequence([]);
+            await expect(fetchOpenRouterUsage({ ...env,
+                OPENROUTER_USAGE_SINCE: since }, fetcher, NOW)).rejects.toThrow();
+            expect(requests).toHaveLength(0);
+        },
+    );
+
+    it.each([undefined, '2026-02-30', '2026-10-01T01:00:00Z',
+        '2026-10-01T00:00:00+00:00', '2026-10-28', '2025-10-25'])(
+        'rejects malformed or out-of-window daily dates %s', async date => {
+            const { fetcher } = sequence([dailyUsage([
+                { date__day: date, tokens_total: 1, request_count: 1 },
+            ])]);
+            await expect(fetchOpenRouterUsage(env, fetcher, NOW)).rejects.toThrow('usage');
+        },
+    );
+
+    it('rejects repeated days even when their timestamp representations differ', async () => {
+        const { fetcher } = sequence([dailyUsage([
+            { date__day: '2026-10-01', tokens_total: 1, request_count: 1 },
+            { date__day: '2026-10-01T00:00:00Z', tokens_total: 2, request_count: 1 },
+        ])]);
+        await expect(fetchOpenRouterUsage(env, fetcher, NOW)).rejects.toThrow('repeated');
+    });
+
+    it('rejects overflow while adding otherwise valid daily counts', async () => {
+        const { fetcher } = sequence([dailyUsage([
+            { date__day: '2026-10-01', tokens_total: Number.MAX_SAFE_INTEGER,
+                request_count: 1 },
+            { date__day: '2026-10-02', tokens_total: 1, request_count: 1 },
+        ])]);
+        await expect(fetchOpenRouterUsage(env, fetcher, NOW)).rejects.toThrow('token count');
     });
 
     it.each([null, -1, 1.5, '1.5', 'NaN', Number.MAX_SAFE_INTEGER + 1])(
@@ -78,13 +167,35 @@ describe('OpenRouter aggregate usage', () => {
         },
     );
 
+    it.each([undefined, null, -1, 1.5, '1.5', 'NaN',
+        Number.MAX_SAFE_INTEGER + 1, '9007199254740992'])(
+        'rejects malformed or missing request counts %s', async requests => {
+            const { fetcher } = sequence([dailyUsage([
+                { date__day: '2026-10-01', tokens_total: '10',
+                    request_count: requests },
+            ])]);
+            await expect(fetchOpenRouterUsage(env, fetcher, NOW)).rejects.toThrow('request count');
+        },
+    );
+
+    it('rejects request-count overflow while daily token counts remain valid', async () => {
+        const { fetcher } = sequence([dailyUsage([
+            { date__day: '2026-10-01', tokens_total: 1,
+                request_count: String(Number.MAX_SAFE_INTEGER) },
+            { date__day: '2026-10-02', tokens_total: 0, request_count: '1' },
+        ])]);
+        await expect(fetchOpenRouterUsage(env, fetcher, NOW)).rejects.toThrow('request count');
+    });
+
     it.each([
         { metadata: { row_count: 1, truncated: true } },
         { metadata: { row_count: 2, truncated: false } },
         { metadata: { row_count: 1 } },
-        { data: [] },
+        { data: undefined },
         { data: [{ tokens_total: '1' }, { tokens_total: '2' }] },
         { warnings: ['upstream-filter-warning'] },
+        { data: Array.from({ length: 368 }, () => ({})),
+            metadata: { row_count: 368, truncated: false } },
     ])('rejects partial or unconfirmed totals %j', async extra => {
         const { fetcher } = sequence([openRouter('123', extra)]);
         await expect(fetchOpenRouterUsage(env, fetcher, NOW)).rejects.toThrow('partial');

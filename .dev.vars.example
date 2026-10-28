@@ -1,15 +1,26 @@
-# Copy to ignored .dev.vars; keep this file secrets-only.
-# Set usernames and nonsecret options in wrangler.jsonc before preview/deploy.
-# Explicit first deploy: npm run deploy -- --secrets-file .dev.vars
-# Never put keys in wrangler.jsonc vars or README image URLs.
-# Classic PAT scopes for all visibility: repo, read:user, read:org.
-GITHUB_TOKEN=replace_with_a_server_side_github_token
-# Optional WakaTime read-stats OAuth token (not a heartbeat ingestion key).
-# WAKATIME_TOKEN=replace_with_an_optional_read_stats_oauth_token
-# Optional OpenRouter Management key (ordinary inference keys cannot read tokens).
-# OPENROUTER_API_KEY=replace_with_a_management_key
-# Optional Anthropic organization Admin key, for API usage only.
-# ANTHROPIC_ADMIN_KEY=replace_with_an_anthropic_admin_key
-# Separate random >=32-character secret for aggregate-only Codex imports.
+# Worker secrets only: copy to ignored .dev.vars and replace placeholders.
+# Four primary services: GitHub, WakaTime, Codex, OpenRouter.
+# Keep usernames, enable flags, periods and cache options in wrangler.jsonc vars.
+# Explicit upload: npm run deploy -- --secrets-file .dev.vars
+# Never put credentials in Wrangler vars, source control or README image URLs.
+
+# GitHub username-only public REST needs no token. For full owner/private data:
+# GitHub classic PAT/OAuth scopes: repo, read:user, read:org.
+# GITHUB_TOKEN=replace_with_a_server_side_github_token
+
+# WakaTime public-first needs no secret. Same-range OAuth fallback/token-only:
+# Scopes: email plus read_stats.languages (or read_stats).
+# WAKATIME_TOKEN=replace_with_a_read_stats_oauth_token
+
+# Codex: set CODEX_USAGE_ENABLED=true in Wrangler vars to display imported data.
+# Optional CODEX_USERNAME in vars is a bare public ID, never a profile URL.
+# Use the same separate >=32-character random secret in the local sync environment.
 # CODEX_SYNC_TOKEN=replace_with_an_independent_sync_secret
-# Enable CODEX_USAGE_ENABLED=true in wrangler.jsonc vars or Worker settings.
+
+# OpenRouter Management key; an ordinary model-inference key is insufficient.
+# OPENROUTER_API_KEY=replace_with_a_management_key
+# Reporting start OPENROUTER_USAGE_SINCE belongs in vars, not this upload file.
+
+# Advanced optional extra: Anthropic organization API usage, not Claude Pro/Max.
+# ANTHROPIC_ADMIN_KEY=replace_with_an_anthropic_admin_key
+# ANTHROPIC_USAGE_SINCE belongs in Wrangler vars if overriding its default.

@@ -160,15 +160,19 @@ describe('shared snapshot failure responses', () => {
         const missing = await handler.fetch(request, settings);
         expect(JSON.parse(await missing.text()).configuration).toEqual({
             githubTokenConfigured: false, wakatimeTokenConfigured: false,
+            codexUsageEnabled: false, openrouterTokenConfigured: false,
         });
         const configured = await handler.fetch(request, {
             ...settings, GITHUB_TOKEN: 'isolated-github-fixture',
             WAKATIME_TOKEN: 'isolated-waka-fixture',
+            OPENROUTER_API_KEY: 'isolated-openrouter-fixture',
+            CODEX_USAGE_ENABLED: 'true',
         });
         expect(configured.headers.get('cache-control')).toBe('no-store');
         const body = await configured.text();
         expect(JSON.parse(body).configuration).toEqual({
             githubTokenConfigured: true, wakatimeTokenConfigured: true,
+            codexUsageEnabled: true, openrouterTokenConfigured: true,
         });
         expect(body).not.toContain('isolated-');
     });

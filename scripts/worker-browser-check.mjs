@@ -33,10 +33,14 @@ const mf = new Miniflare({
                 assert.equal(request.headers.get('authorization'),
                     'Bearer isolated-management-fixture');
                 const query = await request.json();
-                assert.deepEqual(query.metrics, ['tokens_total']);
+                assert.deepEqual(query.metrics, ['tokens_total', 'request_count']);
                 assert.equal(query.dimensions, undefined);
+                assert.equal(query.granularity, 'day');
+                assert.equal((Date.parse(query.time_range.end)
+                    - Date.parse(query.time_range.start)) / 86_400_000, 367);
                 return Response.json({ data: {
-                    data: [{ tokens_total: '42000' }],
+                    data: [{ date__day: query.time_range.start.slice(0, 10),
+                        tokens_total: '42000', request_count: '1234' }],
                     metadata: { row_count: 1, truncated: false },
                 } });
             }
@@ -51,6 +55,10 @@ const mf = new Miniflare({
                             ephemeral_5m_input_tokens: 20, ephemeral_1h_input_tokens: 10,
                         } }],
                 }], has_more: false, next_page: null });
+            }
+            if (url.hostname === 'api.github.com') {
+                assert.equal(request.headers.get('authorization'), null);
+                return Response.json({ message: 'Isolated upstream outage' }, { status: 503 });
             }
             assert.equal(url.hostname, 'api.wakatime.com');
             return Response.json({ data: {
@@ -92,6 +100,13 @@ try {
     checks.allOptionalSourcesCollected = imported.aiUsage.openrouter.data.totalTokens === 42000
         && imported.aiUsage.anthropic.data.totalTokens === 250
         && imported.aiUsage.codex.data.totalTokens === 131320846898;
+    const openrouter = imported.aiUsage.openrouter.data;
+    checks.openrouterFiveMetricsUseFullInterval = openrouter.collectionVersion === 3
+        && openrouter.totalPrompts === 1234
+        && openrouter.period === 'Last 367 days'
+        && openrouter.summary.longestStreakDays === 1
+        && openrouter.summary.averageDailyTokens === 42000 / 367
+        && openrouter.summary.averageWeeklyTokens === 42000 / 367 * 7;
     checks.usageCredentialsNotPublished = !JSON.stringify(imported).includes(syncToken)
         && !JSON.stringify(imported).includes('isolated-management-fixture')
         && !JSON.stringify(imported).includes('isolated-anthropic-fixture')
@@ -122,11 +137,34 @@ try {
     await page.waitForFunction(() => document.querySelector('#loading').hidden);
     await page.locator('#card').evaluate(image => image.decode());
     checks.partialSourceStillRenders = await page.locator('#language-body tr').count() === 2;
-    checks.missingSecretVisible = (await page.locator('#github-error').textContent())
-        .includes('Configure a server-side GITHUB_TOKEN');
+    checks.fourPrimaryProviderCards = JSON.stringify(await page.locator('[data-source-provider]')
+        .evaluateAll(nodes => nodes.map(node => node.dataset.sourceProvider)
+            .filter(service => service !== 'anthropic')))
+        === JSON.stringify(['github', 'wakatime', 'codex', 'openrouter']);
+    checks.groupedGitHubStatusHonest = await page.locator('#github-provider-status')
+        .textContent() === 'unavailable'
+        && await page.locator('#github-datasets').getAttribute('open') !== null
+        && await page.locator('[data-source-provider="github"] #githubActivity-status').count() === 1;
+    checks.aiUsageDetailsPreserveUnitsAndUnknowns = await page.locator(
+        '[data-usage-detail="codex"][data-usage-metric="totalTokens"] td',
+    ).nth(2).textContent() === '131,320,846,898 tokens'
+        && await page.locator('[data-usage-detail="codex"][data-usage-metric="peakDailyTokens"] td')
+            .nth(2).textContent() === '—'
+        && await page.locator('[data-usage-detail="openrouter"][data-usage-metric="totalPrompts"] td')
+            .nth(2).textContent() === '1,234 requests'
+        && await page.locator('[data-usage-detail="openrouter"] td:last-child')
+            .allTextContents().then(values => values.length === 5
+                && values.every(value => value === 'Last 367 days'));
+    await page.locator('#ai-usage-details > summary').click();
+    checks.aiUsageDetailsExpandable = await page.locator('#ai-usage-body').isVisible();
+    checks.anonymousGitHubOutageVisible = (await page.locator('#github-error').textContent())
+        .includes('503');
     checks.wakaStillFresh = await page.locator('#wakatime-status').textContent() === 'fresh';
     checks.optionalUsageStatusVisible = await page.locator('[data-usage-source]').count() === 3
         && await page.locator('#codex-status').textContent() === 'fresh';
+    checks.usageSourceOrder = JSON.stringify(await page.locator('[data-usage-source]')
+        .evaluateAll(nodes => nodes.map(node => node.dataset.usageSource)))
+        === JSON.stringify(['codex', 'openrouter', 'anthropic']);
     checks.transparentDefault = await page.locator('#theme').inputValue() === 'transparent';
     checks.codeDefault = await page.locator('#sort').inputValue() === 'code';
     checks.readmeVisible = await page.locator('#readme-details').evaluate(node => node.open);
@@ -149,6 +187,39 @@ try {
         && rootMarkup.includes('@media(prefers-color-scheme:dark)');
     checks.tokenStripRenderedByWorker = rootMarkup.includes('131.3B')
         && rootMarkup.includes('42K') && rootMarkup.includes('Anthropic API');
+    await page.goto(origin + '/card.svg?theme=dark');
+    checks.workerProviderMetricsAndOrder = await page.evaluate(() => {
+        const providers = [...document.querySelectorAll('[data-token-service]')];
+        const names = providers.map(group => group.dataset.tokenService);
+        const [codex, openrouter] = providers;
+        const keys = group => [...group.querySelectorAll('[data-usage-metric]')]
+            .map(metric => metric.dataset.usageMetric);
+        return JSON.stringify(names) === JSON.stringify(['codex', 'openrouter', 'anthropic'])
+            && JSON.stringify(keys(codex)) === JSON.stringify(['totalTokens',
+                'peakDailyTokens', 'longestRunningTurnSec', 'longestStreakDays', 'currentStreakDays'])
+            && JSON.stringify(keys(openrouter)) === JSON.stringify(['totalTokens',
+                'averageDailyTokens', 'averageWeeklyTokens', 'totalPrompts', 'longestStreakDays'])
+            && codex.querySelector('[data-token-period]').textContent === 'Lifetime'
+            && codex.querySelector('[data-usage-label]').textContent === 'Total tokens'
+            && openrouter.querySelector('[data-usage-metric="totalPrompts"] title')
+                .textContent === 'Total prompts: 1,234 requests'
+            && !!codex.querySelector('[data-provider-icon="codex"] path')
+            && !!openrouter.querySelector('[data-provider-icon="openrouter"] path');
+    });
+    checks.workerRankAndFooterPlacement = await page.evaluate(() => {
+        const root = document.querySelector('svg').getBoundingClientRect();
+        const rank = document.querySelector('[data-rank-placement="top-right"]');
+        const badge = rank?.getBoundingClientRect();
+        const metrics = [...document.querySelectorAll('[data-summary-metric]')];
+        const refresh = document.querySelector('[data-refresh-times]');
+        const labels = [...refresh.querySelectorAll('[data-refresh-line] text')]
+            .map(node => node.textContent).join(' ');
+        return !!badge && badge.left > root.left + root.width / 2
+            && badge.bottom < Math.min(...metrics.map(node => node.getBoundingClientRect().top))
+            && labels.indexOf('Codex:') < labels.indexOf('OpenRouter:')
+            && !document.querySelector('[data-section="footer"] [data-profile-rank]')
+            && !document.querySelector('[data-section="footer"] [data-profile-identity]');
+    });
     await page.goto(origin + '/build?theme=dark&view=activity&header=false');
     await page.waitForFunction(() => document.querySelector('#loading').hidden);
     checks.builderQueryOptions = await page.locator('#theme').inputValue() === 'dark'

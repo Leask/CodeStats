@@ -650,7 +650,7 @@ describe('WakaTime collector', () => {
             .rejects.toThrow('denominator changed');
     });
 
-    it('uses OAuth in headers, never the URL', async () => {
+    it('keeps complete public data anonymous even when OAuth is configured', async () => {
         let captured: RequestInit | undefined;
         let url = '';
         const fetcher = (async (input, init) => {
@@ -660,8 +660,7 @@ describe('WakaTime collector', () => {
         }) as Fetcher;
         await fetchWakaTime({ ...wakaEnv, WAKATIME_TOKEN: 'fixture-only' },
             'all_time', fetcher);
-        expect(new Headers(captured?.headers).get('Authorization'))
-            .toBe('Bearer fixture-only');
+        expect(new Headers(captured?.headers).has('Authorization')).toBe(false);
         expect(captured?.redirect).toBe('manual');
         expect(new URL(url).origin).toBe('https://api.wakatime.com');
         expect(url).not.toContain('fixture-only');

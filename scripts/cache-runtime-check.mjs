@@ -33,8 +33,8 @@ const outboundService = async request => {
         });
     }
     if (url.hostname === 'api.wakatime.com') {
-        assert.equal(request.headers.get('authorization'),
-            'Bearer isolated-waka-fixture-not-a-secret');
+        // A named public range wins without transmitting configured OAuth.
+        assert.equal(request.headers.get('authorization'), null);
         return Response.json({ data: {
             total_seconds_including_other_language: 100,
             daily_average_including_other_language: 10,
@@ -46,6 +46,9 @@ const outboundService = async request => {
                 { name: 'Other', total_seconds: 30, percent: 30 },
             ],
         } });
+    }
+    if (request.headers.get('authorization') === null) {
+        return Response.json({ message: 'Isolated public outage' }, { status: 503 });
     }
     assert.equal(request.headers.get('authorization'),
         'Bearer isolated-test-token-not-a-secret');
@@ -134,8 +137,8 @@ const checks = {};
 let mf = create('test', false);
 try {
     const missing = await stats(mf);
-    checks.missingTokenCooldown = missing.github.data === null
-        && missing.github.lastError.includes('Configure a server-side GITHUB_TOKEN')
+    checks.anonymousFailureCooldown = missing.github.data === null
+        && missing.github.lastError.includes('503')
         && Date.parse(missing.github.retryAt) > Date.now();
     await mf.dispose();
     mf = create();

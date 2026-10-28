@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { chromium } from '@playwright/test';
+import { build } from 'esbuild';
 import { profileRank } from '../src/rank.ts';
 
 const base = process.env.PREVIEW_URL ?? 'http://127.0.0.1:8791';
@@ -43,6 +44,199 @@ async function selectControl(id, value) {
     await waitForSelectedCard();
 }
 
+async function inspectCardLayout(page, expectedServices, normalFooter = false) {
+    return page.evaluate(({ expectedServices, normalFooter }) => {
+        const root = document.querySelector('svg');
+        const bounds = root.getBoundingClientRect();
+        const box = node => node.getBoundingClientRect();
+        const overlap = (a, b, gap = 0) => a.left < b.right + gap
+            && b.left < a.right + gap && a.top < b.bottom + gap
+            && b.top < a.bottom + gap;
+        const badge = root.querySelector('[data-profile-rank], [data-profile-identity]');
+        const badgeBox = badge && box(badge);
+        const headline = [...root.querySelectorAll('[data-summary-metric]')];
+        const profileTexts = [...root.querySelectorAll('[data-profile-header] text')];
+        const refresh = root.querySelector('[data-refresh-times]');
+        const credit = root.querySelector('[data-project-credit]');
+        const lines = [...refresh.querySelectorAll('[data-refresh-line]')];
+        const creditBox = box(credit);
+        const creditText = box(credit.querySelector('text'));
+        const firstTime = lines[0] && box(lines[0].querySelector('text'));
+        const cardPadding = Number(root.dataset.cardPadding);
+        const outerPadding = badgeBox ? [
+            badgeBox.top - bounds.top, bounds.right - badgeBox.right,
+            box(refresh).left - bounds.left, bounds.right - creditBox.right,
+            bounds.bottom - box(refresh).bottom,
+        ] : [];
+        const rim = root.querySelector('[data-avatar-rank-rim]');
+        if (rim) {
+            const stroke = Number(rim.getAttribute('stroke-width')) / 2;
+            outerPadding.push(box(rim).left - stroke - bounds.left,
+                box(rim).top - stroke - bounds.top);
+        }
+        const prefixOrder = ['GitHub:', 'WakaTime:', ...expectedServices.map(service => ({
+            codex: 'Codex:', openrouter: 'OpenRouter:', anthropic: 'Anthropic API:',
+        }[service]))];
+        const refreshText = lines.map(line => line.textContent).join(' ');
+        const positions = prefixOrder.map(prefix => refreshText.indexOf(prefix));
+        const providerGroups = [...root.querySelectorAll('[data-token-service]')];
+        const providers = providerGroups.map(group => group.dataset.tokenService);
+        const icons = providerGroups.filter(group => ['codex', 'openrouter']
+            .includes(group.dataset.tokenService)).map(group => {
+            const service = group.dataset.tokenService;
+            const icon = group.querySelector('[data-provider-icon="' + service + '"]');
+            return { valid: !!icon && icon.tagName.toLowerCase() === 'svg'
+                && !!icon.querySelector('path') && !icon.querySelector('image, use'),
+            signature: icon ? [...icon.querySelectorAll('path')]
+                .map(path => path.getAttribute('d')).join(' ') : '' };
+        });
+        const clipping = [...root.querySelectorAll('text')].flatMap(node => {
+            const b = box(node);
+            return b.left < bounds.left - 0.1 || b.top < bounds.top - 0.1
+                || b.right > bounds.right + 0.1 || b.bottom > bounds.bottom + 0.1
+                ? [node.textContent] : [];
+        });
+        const outer = root.querySelector(':scope > g');
+        const globalY = value => new DOMPoint(0, Number(value))
+            .matrixTransform(outer.getScreenCTM()).y;
+        const sectionPaddings = [];
+        for (const section of root.querySelectorAll('[data-section]')) {
+            const kind = section.dataset.section;
+            const texts = [...section.querySelectorAll('text')].map(box);
+            if (!texts.length || kind === 'activity') continue;
+            const first = Math.min(...texts.map(text => text.top));
+            const last = Math.max(...texts.map(text => text.bottom));
+            if (kind !== 'summary') {
+                sectionPaddings.push({ section: kind, edge: 'top',
+                    pixels: first - globalY(section.dataset.sectionTop) });
+            }
+            const bottom = kind === 'summary' ? globalY(Number(section.dataset.sectionBottom)
+                    + Number(section.dataset.sectionPadding))
+                : globalY(section.dataset.sectionBottom);
+            if (kind !== 'footer') {
+                sectionPaddings.push({ section: kind, edge: 'bottom', pixels: bottom - last });
+            }
+        }
+        return {
+            clipping,
+            outerPaddingUniform: cardPadding === 32 && outerPadding.length >= 5
+                && outerPadding.every(value => Math.abs(value - cardPadding) < 0.6),
+            badgeGeometry: badgeBox ? { left: badgeBox.left - bounds.left,
+                right: badgeBox.right - bounds.left, top: badgeBox.top - bounds.top,
+                bottom: badgeBox.bottom - bounds.top } : null,
+            profileGeometry: profileTexts.map(node => {
+                const b = box(node);
+                return { text: node.textContent, left: b.left - bounds.left,
+                    right: b.right - bounds.left, top: b.top - bounds.top,
+                    bottom: b.bottom - bounds.top };
+            }),
+            sectionPaddings,
+            topRightRank: !!badgeBox && badge.dataset.rankPlacement === 'top-right'
+                && badgeBox.left > bounds.left + bounds.width / 2
+                && bounds.right - badgeBox.right >= 20
+                && bounds.right - badgeBox.right <= 100
+                && badgeBox.top >= bounds.top + 8
+                && badgeBox.bottom <= bounds.top + 80,
+            rankNoOverlap: !!badgeBox && [...headline, ...profileTexts]
+                .every(node => !overlap(badgeBox, box(node), 1)),
+            providerOrder: JSON.stringify(providers) === JSON.stringify(expectedServices),
+            providerBrandIcons: icons.every(icon => icon.valid)
+                && new Set(icons.map(icon => icon.signature)).size === icons.length,
+            refreshOrder: positions.every((position, index) => position >= 0
+                && (!index || position > positions[index - 1])),
+            sectionPaddingUniform: sectionPaddings.length >= 2
+                // The 11px and 13px title glyphs differ by2px; compare visible
+                // bounds while still rejecting cramped or oversized gaps.
+                && sectionPaddings.every(({ pixels }) => pixels >= 16 && pixels <= 25)
+                && Math.max(...sectionPaddings.map(({ pixels }) => pixels))
+                    - Math.min(...sectionPaddings.map(({ pixels }) => pixels)) <= 6,
+            footer: lines.length >= 1 && lines.length <= 3
+                && box(refresh).left >= bounds.left + 31
+                && lines.every(line => {
+                    const clock = box(line.querySelector('svg'));
+                    const copy = box(line.querySelector('text'));
+                    return Math.abs(copy.left - clock.right - 6) < 0.5
+                        && copy.right + 12 <= creditBox.left
+                        && copy.top >= bounds.top && copy.bottom <= bounds.bottom;
+                })
+                && Math.abs(creditText.bottom - firstTime.bottom) < 2
+                && (!normalFooter || lines.length === 1),
+        };
+    }, { expectedServices, normalFooter });
+}
+
+async function syntheticLayoutReview(snapshot) {
+    // A finite set of rendered SVGs verifies real text geometry, not a second
+    // preview server or a network call with synthetic account data.
+    const compiled = await build({ entryPoints: ['src/render.ts'], bundle: true,
+        platform: 'node', format: 'esm', write: false, logLevel: 'silent' });
+    const { renderCard } = await import('data:text/javascript;base64,'
+        + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
+    const synthetic = await context.newPage();
+    const cases = [];
+    for (const header of [true, false]) {
+        for (const count of [0, 1, 2, 3]) {
+            cases.push({ header, services: ['codex', 'openrouter', 'anthropic'].slice(0, count),
+                kind: 'normal' });
+        }
+        cases.push({ header, services: ['openrouter'], kind: 'openrouter-only' });
+        cases.push({ header, services: ['codex', 'openrouter'], kind: 'long-profile' });
+        cases.push({ header, services: ['codex', 'openrouter', 'anthropic'], kind: 'old-times' });
+    }
+    const results = [];
+    try {
+        for (const entry of cases) {
+            const data = structuredClone(snapshot);
+            data.aiUsage = {};
+            if (entry.kind === 'long-profile') {
+                data.github.data.username = 'W'.repeat(38);
+                data.github.data.name = 'A very long display name that must leave room for the ranking badge';
+                data.github.data.bio = 'A detailed profile description that also stays clear of the ranking badge.';
+            }
+            for (const service of entry.services) {
+                data.aiUsage[service] = {
+                    status: 'fresh', lastError: null, retryAt: null,
+                    lastSuccessAt: data.generatedAt, lastAttemptAt: data.generatedAt,
+                    data: { service, label: service, totalTokens: 131_320_846_898,
+                        totalPrompts: 129_146,
+                        period: service === 'codex' ? 'Lifetime tokens' : 'Last 367 days',
+                        since: null, until: data.generatedAt, scope: 'Isolated layout fixture',
+                        summary: { averageDailyTokens: 797_955, averageWeeklyTokens: 5_585_688,
+                            longestStreakDays: 120, currentStreakDays: 82,
+                            peakDailyTokens: 5_262_475_191, longestRunningTurnSec: 203_454 } },
+                };
+            }
+            if (entry.kind === 'old-times') {
+                for (const source of [data.github, data.wakatime,
+                    ...Object.values(data.aiUsage)]) {
+                    source.lastSuccessAt = '2000-01-01T00:01:00Z';
+                }
+            }
+            await synthetic.setContent(renderCard(data, {
+                theme: 'dark', range: data.range, header: entry.header,
+                sort: 'code', limit: 10, view: 'overview',
+            }));
+            const review = await inspectCardLayout(synthetic, entry.services,
+                entry.kind === 'normal' && entry.services.length <= 2);
+            results.push({ ...entry, ...review });
+            if (entry.kind === 'long-profile' || entry.kind === 'old-times') {
+                await synthetic.locator('svg').first().screenshot({
+                    path: 'artifacts/layout-' + entry.kind + '-header-' + entry.header + '.png',
+                });
+            }
+        }
+    } finally {
+        await synthetic.close();
+    }
+    writeFileSync('artifacts/layout-polish-synthetic-review.json',
+        JSON.stringify({ checkedAt: new Date().toISOString(), cases: results }, null, 4) + '\n');
+    return results.every(({ clipping, topRightRank, rankNoOverlap, providerOrder,
+        providerBrandIcons, refreshOrder, sectionPaddingUniform, outerPaddingUniform,
+        footer }) => clipping.length === 0
+        && topRightRank && rankNoOverlap && providerOrder && providerBrandIcons
+        && refreshOrder && sectionPaddingUniform && outerPaddingUniform && footer);
+}
+
 try {
     await page.goto(base + '/build', { waitUntil: 'networkidle' });
     await waitForSelectedCard();
@@ -59,7 +253,7 @@ try {
         .textContent() === (activity?.status ?? 'unavailable')
         && await page.locator('#githubActivity-error').textContent()
             === (activity?.lastError ?? '');
-    const configuredUsage = ['openrouter', 'codex', 'anthropic']
+    const configuredUsage = ['codex', 'openrouter', 'anthropic']
         .filter(service => expected.aiUsage?.[service]);
     checks.optionalUsageSourceState = true;
     for (const service of configuredUsage) {
@@ -71,6 +265,29 @@ try {
     }
     checks.onlyConfiguredUsageSources = await page.locator('[data-usage-source]').count()
         === configuredUsage.length;
+    checks.usageSourceOrder = JSON.stringify(await page.locator('[data-usage-source]')
+        .evaluateAll(nodes => nodes.map(node => node.dataset.usageSource)))
+        === JSON.stringify(configuredUsage);
+    checks.fourPrimaryProviderCards = JSON.stringify(await page.locator('[data-source-provider]')
+        .evaluateAll(nodes => nodes.map(node => node.dataset.sourceProvider)
+            .filter(service => service !== 'anthropic')))
+        === JSON.stringify(['github', 'wakatime', 'codex', 'openrouter']);
+    checks.groupedGitHubDatasets = await page.locator(
+        '[data-source-provider="github"] #github-status',
+    ).count() === 1 && await page.locator(
+        '[data-source-provider="github"] #githubActivity-status',
+    ).count() === 1;
+    checks.optionalSourceSetup = true;
+    for (const service of ['codex', 'openrouter']) {
+        const panel = page.locator('[data-source-provider="' + service + '"]');
+        const enabled = !!expected.aiUsage?.[service];
+        checks.optionalSourceSetup &&= (await panel.locator('.source-setup')
+            .getAttribute('href')).endsWith('/docs/AI-USAGE.md#' + service)
+            && (enabled || await panel.locator('.badge').textContent() === 'Not enabled');
+    }
+    checks.aiUsageDetails = await page.locator('[data-usage-detail]').count()
+        === configuredUsage.reduce((total, service) => total + (service === 'anthropic' ? 1 : 5), 0)
+        && await page.getByLabel('WakaTime range', { exact: true }).count() === 1;
     const count = await page.locator('#language-body tr').count();
     const names = await page.locator('#language-body tr td:first-child')
         .allTextContents();
@@ -134,9 +351,9 @@ try {
         '<text x="' + x + '"[^>]*>([0-9.]+)%</text>', 'g',
     ))].map(match => Number(match[1]));
     checks.cardDisplayedShares = hundred(cardShares(523), 10)
-        && hundred(cardShares(841), 10);
-    checks.githubColumnFirst = /<text x="225" y="258"[^>]*>GITHUB · CODE BYTES · SCALE /.test(card)
-        && /<text x="558" y="258"[^>]*>WAKATIME · CODE TIME · SCALE /.test(card)
+        && hundred(cardShares(848), 10);
+    checks.githubColumnFirst = /<text x="225"[^>]*>GITHUB · CODE BYTES · SCALE /.test(card)
+        && /<text x="558"[^>]*>WAKATIME · CODE TIME · SCALE /.test(card)
         && JSON.stringify(await page.locator('#language-details th').allTextContents())
             === JSON.stringify(['Language', 'Repos', 'Code bytes', 'Code share',
                 'Time', 'Time share']);
@@ -154,7 +371,7 @@ try {
     )).text();
     checks.headerToggle = !withoutHeader.includes('data-profile-header')
         && Number(card.match(/height="(\d+)"/)[1])
-            - Number(withoutHeader.match(/height="(\d+)"/)[1]) === 100
+            - Number(withoutHeader.match(/height="(\d+)"/)[1]) === 62
         && (await page.locator('#snippet').textContent()).includes('?header=false)');
     await selectControl('header', 'true');
     checks.defaultHeaderHasNoParameter = !(await page.locator('#snippet').textContent())
@@ -244,6 +461,11 @@ try {
     checks.scaleHeaders = true;
     checks.svgRepositoryCounts = true;
     checks.tokenUsageStrip = true;
+    checks.topRightRank = true;
+    checks.rankBadgeContent = true;
+    checks.providerBrandIcons = true;
+    checks.refreshSourceOrder = true;
+    checks.uniformSectionPadding = true;
     const clipping = [];
     for (const view of ['overview', 'activity']) {
         for (const theme of ['dark', 'light', 'transparent']) {
@@ -271,7 +493,7 @@ try {
             });
             const rank = profileRank(expected.github.data, activity?.data ?? null);
             checks.tokenUsageStrip &&= await svgPage.evaluate(({ usage, view }) => {
-                const configured = ['openrouter', 'codex', 'anthropic']
+                const configured = ['codex', 'openrouter', 'anthropic']
                     .filter(service => usage?.[service]);
                 const groups = [...document.querySelectorAll('[data-token-service]')];
                 if (view === 'activity') return groups.length === 0;
@@ -279,19 +501,59 @@ try {
                 const formatter = new Intl.NumberFormat('en-US', {
                     notation: 'compact', maximumFractionDigits: 1,
                 });
+                const tokens = value => typeof value === 'number' ? formatter.format(value) : '—';
+                const days = value => typeof value === 'number'
+                    ? value.toLocaleString('en-US') + (value === 1 ? ' day' : ' days') : '—';
+                const duration = value => {
+                    if (typeof value !== 'number') return '—';
+                    const totalMinutes = Math.round(value / 60);
+                    const hours = Math.floor(totalMinutes / 60);
+                    const minutes = totalMinutes % 60;
+                    return hours ? hours.toLocaleString('en-US') + 'h'
+                        + (minutes ? minutes + 'm' : '') : minutes + 'm';
+                };
                 return groups.every((group, index) => {
                     const service = configured[index];
                     const source = usage[service];
                     const total = source.data?.totalTokens;
-                    const value = typeof total === 'number' ? formatter.format(total) : '—';
+                    const value = tokens(total);
+                    const summary = source.data?.summary;
+                    const expectedMetrics = service === 'codex' ? [
+                        ['totalTokens', value, 'Total tokens'],
+                        ['peakDailyTokens', tokens(summary?.peakDailyTokens), 'Peak tokens'],
+                        ['longestRunningTurnSec', duration(summary?.longestRunningTurnSec), 'Longest task'],
+                        ['longestStreakDays', days(summary?.longestStreakDays), 'Longest streak'],
+                        ['currentStreakDays', days(summary?.currentStreakDays), 'Current streak'],
+                    ] : service === 'openrouter' ? [
+                        ['totalTokens', value, 'Total tokens'],
+                        ['averageDailyTokens', tokens(summary?.averageDailyTokens), 'Tokens/day'],
+                        ['averageWeeklyTokens', tokens(summary?.averageWeeklyTokens), 'Tokens/week'],
+                        ['totalPrompts', tokens(source.data?.totalPrompts), 'Total prompts'],
+                        ['longestStreakDays', days(summary?.longestStreakDays), 'Longest streak'],
+                    ] : [['totalTokens', value, 'Total tokens']];
+                    const metrics = [...group.querySelectorAll('[data-usage-metric]')];
+                    const nativeMetrics = metrics.length === expectedMetrics.length
+                        && metrics.every((metric, metricIndex) => {
+                            const [key, expectedValue, expectedLabel] = expectedMetrics[metricIndex];
+                            const copies = metric.querySelectorAll(':scope > text');
+                            const bounds = metric.getBoundingClientRect();
+                            const next = metrics[metricIndex + 1]?.getBoundingClientRect();
+                            return metric.dataset.usageMetric === key
+                                && copies[0].textContent === expectedValue
+                                && copies[1].textContent === expectedLabel
+                                && (!next || bounds.right + 6 < next.left);
+                        });
                     const languageRows = [...document.querySelectorAll('[data-language-row]')];
                     const lastLanguage = languageRows.at(-1)?.getBoundingClientRect();
                     const bounds = group.getBoundingClientRect();
                     return group.dataset.tokenService === service
                         && group.dataset.usageStatus === source.status
+                        && nativeMetrics
                         && group.querySelector('[data-token-total]').textContent === value
                         && group.querySelector('[data-token-period]').textContent
-                            === (source.data?.period ?? 'Not available yet')
+                            === (source.data ? service === 'codex'
+                                && source.data.period === 'Lifetime tokens'
+                                ? 'Lifetime' : source.data.period : 'Not available yet')
                         && (!lastLanguage || bounds.top > lastLanguage.bottom + 8);
                 });
             }, { usage: expected.aiUsage, view });
@@ -306,7 +568,7 @@ try {
                     && arc.getAttribute('opacity') === '0.8'
                     && arc.getAttribute('pathLength') === '100'
                     && arc.getAttribute('stroke-dasharray') === '100'
-                    && arc.getAttribute('transform') === 'rotate(-90 66 78)'
+                    && arc.getAttribute('transform') === 'rotate(-90 67.5 87.5)'
                     && Math.abs(Number(arc.getAttribute('stroke-dashoffset'))
                         - rank.percentile) < 0.000001
                     && rim.getAttribute('r') === avatar.getAttribute('r')
@@ -373,7 +635,7 @@ try {
                         const prefix = source.key === 'code'
                             ? 'GITHUB · CODE BYTES · SCALE '
                             : 'WAKATIME · CODE TIME · SCALE ';
-                        result.headers &&= header.textContent === prefix + scale.toFixed(1) + '%';
+                        result.headers &&= header.textContent === prefix + scale + '%';
                         const ratios = [];
                         const shares = [];
                         for (const group of groups) {
@@ -394,8 +656,8 @@ try {
                         }
                         const largest = Math.max(...shares);
                         result.geometry &&= scale >= largest - 0.000001
-                            && scale < largest + 0.100001
-                            && Math.max(...ratios) >= 0.99
+                            && scale < largest + 10.000001
+                            && scale % 10 === 0
                             && Math.max(...ratios) <= 1.000001;
                     }
                     for (const group of groups) {
@@ -430,7 +692,15 @@ try {
                 checks.scaleHeaders &&= chart.headers;
                 checks.svgRepositoryCounts &&= chart.repositories;
             }
-            checks.footerLayout &&= await svgPage.evaluate(({ rank, username, usage }) => {
+            const layout = await inspectCardLayout(svgPage, configuredUsage,
+                configuredUsage.length <= 2);
+            checks.topRightRank &&= layout.topRightRank && layout.rankNoOverlap;
+            checks.footerLayout &&= layout.footer;
+            checks.refreshSourceOrder &&= layout.refreshOrder;
+            checks.uniformSectionPadding &&= layout.sectionPaddingUniform
+                && layout.outerPaddingUniform;
+            if (view === 'overview') checks.providerBrandIcons &&= layout.providerBrandIcons;
+            checks.rankBadgeContent &&= await svgPage.evaluate(({ rank, username }) => {
                 const ranking = document.querySelector('[data-profile-rank]');
                 const trophy = ranking.querySelector('[data-rank-icon]')
                     .getBoundingClientRect();
@@ -444,30 +714,11 @@ try {
                 const text = credit.querySelector('text').getBoundingClientRect();
                 const iconGaps = [ratingBox.left - trophy.right,
                     times.left - clock.right, text.left - logo.right];
-                const identity = rating.textContent === '@' + username + ' · Top '
+                return rating.textContent === '@' + username + ' · Top '
                     + (rank.percentile < 0.01 ? '<0.01' : rank.percentile.toFixed(2))
                     + '% · ' + rank.level
                     && iconGaps.every(gap => Math.abs(gap - 6) < 0.5);
-                const configured = ['openrouter', 'codex', 'anthropic']
-                    .filter(service => usage?.[service]);
-                if (!configured.length) return identity
-                    && ratingBox.right + 16 <= clock.left
-                    && times.right + 16 <= logo.left
-                    && Math.abs(ratingBox.bottom - times.bottom) < 2;
-                const bounds = document.querySelector('svg').getBoundingClientRect();
-                return identity && ratingBox.right + 16 <= logo.left
-                    && times.top > ratingBox.bottom + 6
-                    && Math.abs(ratingBox.bottom - text.bottom) < 2
-                    && [...refresh.querySelectorAll('[data-refresh-line]')].every(line => {
-                        const icon = line.querySelector('svg').getBoundingClientRect();
-                        const copy = line.querySelector('text').getBoundingClientRect();
-                        return Math.abs(copy.left - icon.right - 6) < 0.5
-                            && copy.right < bounds.right;
-                    })
-                    && configured.every(service => refresh.textContent.includes({
-                        openrouter: 'OpenRouter:', codex: 'Codex:', anthropic: 'Anthropic API:',
-                    }[service]));
-            }, { rank, username: expected.github.data.username, usage: expected.aiUsage });
+            }, { rank, username: expected.github.data.username });
             const suffix = view === 'overview' ? theme : 'activity-' + theme;
             await svgPage.locator('svg').first().screenshot({
                 path: 'artifacts/card-' + suffix + '.png',
@@ -487,11 +738,12 @@ try {
                 && !!root.querySelector('[data-profile-rank] [data-rank-icon]')
                 && (() => {
                     const rank = root.querySelector('[data-profile-rank]').getBoundingClientRect();
-                    const refresh = root.querySelector('[data-refresh-times]').getBoundingClientRect();
-                    return rank.right < refresh.left || rank.bottom + 6 < refresh.top;
+                    return rank.top < bounds.top + 40
+                        && metrics.every(metric => rank.bottom + 19.5
+                            <= metric.getBoundingClientRect().top);
                 })()
                 && metrics.length === 8
-                && metrics[0].getBoundingClientRect().top < bounds.top + 30
+                && metrics[0].getBoundingClientRect().top < bounds.top + 70
                 && [...root.querySelectorAll('text')].every(node => {
                     const b = node.getBoundingClientRect();
                     return b.top >= bounds.top && b.bottom <= bounds.bottom
@@ -507,6 +759,7 @@ try {
         && (await page.locator('#snippet').textContent()).includes('header=false');
     checks.noJavaScriptErrors = errors.length === 0;
     checks.noExternalAssets = requests.every(url => new URL(url).origin === new URL(base).origin);
+    checks.syntheticLayoutCases = await syntheticLayoutReview(expected);
     const result = {
         surface: 'Isolated local Chrome Beta via Playwright',
         base, checkedAt: new Date().toISOString(), checks,

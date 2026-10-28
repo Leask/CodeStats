@@ -11,15 +11,17 @@ export function profileRank(
     if (!github || !activity) return null;
     const values = [activity.commits, github.pullRequests, github.issues,
         activity.reviewContributions, github.stars, github.followers];
-    if (values.some(value => !Number.isSafeInteger(value) || value < 0)) return null;
+    if (!values.every((value): value is number => typeof value === 'number'
+        && Number.isSafeInteger(value) && value >= 0)) return null;
+    const [commits, prs, issues, reviews, stars, followers] = values;
     const exponential = (value: number) => 1 - 2 ** -value;
     const normalized = (value: number) => value / (1 + value);
-    const score = 2 * exponential(activity.commits / 1000)
-        + 3 * exponential(github.pullRequests / 50)
-        + exponential(github.issues / 25)
-        + exponential(activity.reviewContributions / 2)
-        + 4 * normalized(github.stars / 50)
-        + normalized(github.followers / 10);
+    const score = 2 * exponential(commits / 1000)
+        + 3 * exponential(prs / 50)
+        + exponential(issues / 25)
+        + exponential(reviews / 2)
+        + 4 * normalized(stars / 50)
+        + normalized(followers / 10);
     const percentile = Math.max(0, Math.min(100, 100 * (1 - score / 12)));
     return { level: LEVELS[THRESHOLDS.findIndex(limit => percentile <= limit)],
         percentile };

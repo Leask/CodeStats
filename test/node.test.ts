@@ -337,22 +337,37 @@ describe('Node runtime and persistent snapshots', () => {
         expect(value.wakatime.data).toBeNull();
     });
 
-    it('retries a missing-token error once configured without clearing WakaTime', async () => {
+    it('switches anonymous fallback to token access without clearing WakaTime', async () => {
         const path = directory();
         const source = upstream();
-        const first = service(path, source.fetcher,
+        const anonymous: string[] = [];
+        const fetcher = (async (input, init) => {
+            const url = new URL(String(input));
+            if (url.hostname === 'api.github.com'
+                && !new Headers(init?.headers).has('authorization')) {
+                anonymous.push(url.pathname);
+                return new Response('Public fixture unavailable', { status: 503 });
+            }
+            return source.fetcher(input, init);
+        }) as Fetcher;
+        const first = service(path, fetcher,
             { ...settings, GITHUB_TOKEN: undefined });
         const missing = await stats(await first.listen(0));
-        expect(missing.github.lastError).toContain('Configure a server-side GITHUB_TOKEN');
+        expect(missing.github.lastError).toContain('GitHub public API returned HTTP 503');
+        expect(anonymous.length).toBeGreaterThan(0);
+        expect(anonymous).toContain('/users/test');
+        expect(anonymous).not.toContain('/graphql');
         expect(Date.parse(missing.github.retryAt!)).toBeGreaterThan(Date.now());
         await first.close();
 
-        const stillMissing = service(path, source.fetcher,
+        const stillMissing = service(path, fetcher,
             { ...settings, GITHUB_TOKEN: undefined });
         const calls = source.calls();
+        const anonymousCalls = anonymous.length;
         expect((await stats(await stillMissing.listen(0))).github.retryAt)
             .toBe(missing.github.retryAt);
         expect(source.calls()).toBe(calls);
+        expect(anonymous.length).toBe(anonymousCalls);
         await stillMissing.close();
 
         const configured = service(path, source.fetcher);
@@ -366,8 +381,8 @@ describe('Node runtime and persistent snapshots', () => {
 
     it('keeps the runtime defaults and validates visibility without logging keys', () => {
         expect(settingsFromEnvironment({})).toMatchObject({
-            GITHUB_USERNAME: 'Leask', GITHUB_VISIBILITY: 'all',
-            WAKATIME_USERNAME: 'leask', DEFAULT_RANGE: 'all_time',
+            GITHUB_USERNAME: '', GITHUB_VISIBILITY: 'all',
+            WAKATIME_USERNAME: '', DEFAULT_RANGE: 'all_time',
         });
         expect(() => settingsFromEnvironment({ GITHUB_VISIBILITY: 'mixed' }))
             .toThrow('GITHUB_VISIBILITY');

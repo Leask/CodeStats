@@ -11,9 +11,9 @@ export interface Storage {
 }
 
 interface Loaders {
-    github: () => Promise<GitHubData>;
+    github?: () => Promise<GitHubData>;
     githubActivity?: () => Promise<GitHubActivityData>;
-    wakatime: (range: Range) => Promise<WakaData>;
+    wakatime?: (range: Range) => Promise<WakaData>;
     aiUsage?: Partial<Record<AIService, () => Promise<AIUsageData>>>;
 }
 
@@ -31,6 +31,12 @@ interface Policy {
 }
 
 type WaitUntil = (promise: Promise<unknown>) => void;
+type SourceName = 'github' | 'wakatime' | 'codex' | 'openrouter';
+
+export interface ReadOptions {
+    sources?: SourceName[];
+    force?: boolean;
+}
 
 function empty<T>(): SourceSnapshot<T> {
     return {
@@ -44,6 +50,8 @@ export class SnapshotCache {
     private readonly inFlight = new Map<string, Promise<unknown>>();
     private readonly now: () => number;
     private codexWrite: Promise<void> = Promise.resolve();
+
+    get busy(): boolean { return this.inFlight.size !== 0; }
 
     constructor(
         private readonly storage: Storage,
@@ -142,6 +150,7 @@ export class SnapshotCache {
         loader: () => Promise<T>,
         waitUntil: WaitUntil,
         isCurrent: (data: T) => boolean = () => true,
+        force = false,
     ): Promise<SourceSnapshot<T>> {
         let stored: SourceSnapshot<T>;
         try {
@@ -163,11 +172,11 @@ export class SnapshotCache {
             // A newly supplied setting can resolve a cached configuration error.
             || (current.lastError !== null
                 && this.policy.retryConfigurationErrors?.includes(current.lastError) === true);
-        if (current.status === 'fresh' || !retryDue) {
+        if ((!force && current.status === 'fresh') || !retryDue) {
             return current;
         }
         const operation = this.refresh(key, current, loader, isCurrent);
-        if (current.data !== null) {
+        if (current.data !== null && !force) {
             // Readable old data is returned immediately while refresh proceeds.
             waitUntil(operation);
             return current;
@@ -194,15 +203,21 @@ export class SnapshotCache {
         await operation;
     }
 
-    private async usage(waitUntil: WaitUntil) {
+    private async usage(waitUntil: WaitUntil, options: ReadOptions) {
+        const selected = options.sources ? new Set<string>(options.sources) : null;
         const entries = await Promise.all(Object.entries(this.loaders.aiUsage ?? {})
+            .filter(([service]) => !selected || selected.has(service))
             .map(async ([service, loader]) => [service,
                 await this.source(this.policy.aiUsageKeys?.[service as AIService]
-                    ?? 'usage:' + service + ':v1', loader, waitUntil),
+                    ?? 'usage:' + service + ':v1', loader, waitUntil,
+                data => service === 'openrouter' ? data.collectionVersion === 3
+                    : service !== 'codex' || data.collectionVersion === 2,
+                options.force),
             ] as const));
         const result: Partial<Record<AIService, SourceSnapshot<AIUsageData>>>
             = Object.fromEntries(entries);
-        if (this.policy.importedCodexUsage && !result.codex) {
+        if (this.policy.importedCodexUsage && !result.codex
+            && (!selected || selected.has('codex'))) {
             try {
                 const stored = await this.storage.get<SourceSnapshot<AIUsageData>>(
                     'usage:codex:v1',
@@ -210,7 +225,7 @@ export class SnapshotCache {
                 result.codex = this.classify(stored ?? {
                     ...empty<AIUsageData>(),
                     lastError: 'Sync Codex aggregates from a locally signed-in Codex CLI.',
-                });
+                }, data => data.collectionVersion === 2);
             } catch {
                 result.codex = { ...empty<AIUsageData>(),
                     lastError: 'Codex usage storage is unavailable.' };
@@ -219,27 +234,37 @@ export class SnapshotCache {
         return result;
     }
 
-    async read(range: Range, waitUntil: WaitUntil): Promise<StatsSnapshot> {
+    async read(range: Range, waitUntil: WaitUntil,
+        options: ReadOptions = {}): Promise<StatsSnapshot> {
+        const selected = options.sources ? new Set(options.sources) : null;
+        const includes = (service: SourceName) => !selected || selected.has(service);
+        const disabled = <T>(): SourceSnapshot<T> => ({ ...empty<T>(), enabled: false });
         const [github, wakatime, githubActivity, aiUsage] = await Promise.all([
-            this.source(this.policy.githubKey ?? 'github',
+            includes('github') && this.loaders.github
+                ? this.source(this.policy.githubKey ?? 'github',
                 this.loaders.github, waitUntil,
                 data => this.policy.githubCollectionVersion === undefined
-                    || data.collectionVersion === this.policy.githubCollectionVersion),
-            this.source('wakatime:' + range,
-                () => this.loaders.wakatime(range), waitUntil),
-            this.loaders.githubActivity
+                    || data.collectionVersion === this.policy.githubCollectionVersion,
+                options.force) : disabled<GitHubData>(),
+            includes('wakatime') && this.loaders.wakatime
+                ? this.source('wakatime:' + range,
+                    () => this.loaders.wakatime!(range), waitUntil,
+                    () => true, options.force) : disabled<WakaData>(),
+            includes('github') && this.loaders.githubActivity
                 ? this.source(this.policy.githubActivityKey ?? 'github:activity',
                     this.loaders.githubActivity, waitUntil,
                     data => this.policy.githubActivityCollectionVersion === undefined
                         || data.collectionVersion === this.policy.githubActivityCollectionVersion,
+                    options.force,
                 ) : undefined,
-            this.usage(waitUntil),
+            this.usage(waitUntil, options),
         ]);
         return {
             schemaVersion: 1, github, wakatime, range,
             ...(githubActivity ? { githubActivity } : {}),
             ...(Object.keys(aiUsage).length ? { aiUsage } : {}),
             generatedAt: new Date(this.now()).toISOString(),
+            ...(options.sources ? { selectedSources: [...options.sources] } : {}),
         };
     }
 }

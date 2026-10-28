@@ -1,100 +1,212 @@
-# Optional AI token usage
+# Codex and OpenRouter usage
 
-[Back to CodeStats](../README.md)
+[Back to CodeStats](../README.md) · [Deployment settings](DEPLOYMENT.md)
 
-Configured services appear below the language table and add their own successful
-refresh times to the footer. Unconfigured services stay hidden. Each service has
-an independent last-good cache: failed fetches preserve its prior value and time;
-unknown data is a dash, not zero. Provider totals are never added together because
-their time windows and token-accounting rules differ and may overlap.
+CodeStats has four primary sources: **GitHub, WakaTime, Codex and OpenRouter**.
+This guide connects the two usage sources. GitHub and WakaTime configuration is
+covered in the [deployment guide](DEPLOYMENT.md#credentials).
 
-## OpenRouter
+The card shows configured usage sources below the language table, with **Codex
+first, then OpenRouter**. Each has its own reporting period, cache and refresh
+time. Their totals are never added together: the periods and accounting rules
+differ, and the same activity may appear in more than one system.
 
-Set `OPENROUTER_API_KEY` to an OpenRouter **Management key**. Ordinary inference
-keys can report their spending but cannot read account token analytics. Management
-keys have broad account administration privileges; CodeStats calls only the
-read-only analytics query. Keep the credential server-side as a Worker Secret or
-in an ignored local environment file.
+| Source | Enable it with | Reporting period |
+| --- | --- | --- |
+| Codex on Node | `CODEX_USAGE_ENABLED=true` and the service user's existing Codex CLI login | Official account/workspace lifetime summary |
+| Codex on a Worker | `CODEX_USAGE_ENABLED=true`, a dedicated `CODEX_SYNC_TOKEN`, and a local aggregate sync | Lifetime summary as of the last imported observation |
+| OpenRouter | `OPENROUTER_API_KEY` containing a Management key | Last 367 completed UTC days, or a shorter configured interval |
 
-CodeStats makes one aggregate `POST /api/v1/analytics/query`, with
-`metrics: ['tokens_total']`, an explicit UTC `time_range`, and no dimensions or
-per-generation traversal. It accepts one complete, untruncated aggregate only.
+Usage credentials apply only to the configured profile. `sources=codex` or
+`sources=openrouter` can select that configured subset without an account
+parameter. Any explicit public `github`, `wakatime` or `codex` ID switches the
+entire request to public mode and strips all owner credentials/imports, including
+the same-ID case. `view=codex` and `view=openrouter` provide focused cards;
+overview remains the default.
 
-The default range is the last 30 **completed UTC days**. Set
-`OPENROUTER_USAGE_SINCE=YYYY-MM-DD` for a different explicit start. The metric
-supports at most 367 days per query; a rejected or incomplete query preserves
-the saved data rather than quietly narrowing its scope. Labels say `Last 30 days`
-or `Since YYYY-MM-DD`. This is an account-wide reporting interval, not a claimed
-full lifetime or just the activity of the supplied inference key.
+The builder always shows the four primary provider cards. An unconfigured
+Codex/OpenRouter card says **Not enabled** and links to setup; its usage row and
+refresh time remain absent from the SVG. A configured source without usable
+data is shown as unavailable, not as zero. After its first success, failed
+refreshes preserve the last good value, reporting period and observation time.
+The builder reports the failure while the card remains readable.
 
-Official references: [analytics query](https://openrouter.ai/docs/api/api-reference/analytics/query-analytics-data),
-[metric schema and window limits](https://openrouter.ai/skills/openrouter-analytics-schema),
-[management-key permissions](https://openrouter.ai/docs/guides/overview/auth/management-api-keys).
+## Codex
 
-## Codex / ChatGPT account activity
+CodeStats reads the official `account/usage/read` method through your existing
+**local Codex login**. The shareable `chatgpt.com/u/…` page requires a signed-in
+viewer; its URL alone is not an anonymous statistics API for a Worker.
 
-The shareable `chatgpt.com/u/…` profile requires a signed-in viewer. It is not an
-anonymous Worker statistics API. CodeStats uses the documented Codex app-server
-`account/usage/read` method instead, through the existing **local** Codex login.
+For a profile link, set `CODEX_USERNAME=your-id` or use `?codex=your-id`.
+Provide a bare ID; CodeStats constructs `https://chatgpt.com/u/your-id` on the
+fixed official host. A dynamic public ID shows that canonical link with unavailable
+usage. It never reads the deployment owner's CLI, aggregate imports or stored
+usage, even when the public ID matches the configured owner. Setting an ID alone
+does not enable account-usage access. The authenticated summary represents the
+active local account/workspace, not a lookup of arbitrary IDs.
+
 No ChatGPT cookie, access token, refresh token or conversation content is copied
-to CodeStats or sent to a Worker.
+to CodeStats or sent to a Worker. API-key-only and Bedrock logins do not provide
+this account statistic. The summary follows the active account/workspace's
+Work/Codex accounting, including cached context; it is not an API billing estimate.
+
+### Card metrics
+
+The period is labelled **Lifetime**. The five fields appear in this order:
+
+| Card metric | Meaning |
+| --- | --- |
+| Total tokens | Official lifetime token count |
+| Peak tokens | Highest daily token count in the official summary |
+| Longest task | Longest reported task/turn, rounded to the nearest minute |
+| Longest streak | Longest reported run of consecutive active days |
+| Current streak | Current reported run of consecutive active days |
+
+Exact task seconds remain in the source JSON and tooltip. Missing fields remain
+unknown rather than becoming zero. Old total-only snapshots stay visible as
+stale data while the full summary is refreshed or imported.
 
 ### Node
 
-Install the Codex CLI and sign in normally, then set:
+Install the Codex CLI and sign in normally as the operating-system account that
+will run CodeStats. Set this in the ignored Node environment file:
 
 ```dotenv
 CODEX_USAGE_ENABLED=true
+# Optional public identity/link, not a credential or account switch:
+CODEX_USERNAME=your-id
 ```
 
-The service reads the official lifetime token summary when its independent cache
-is due. It creates a short-lived app-server child for the read and closes only
-that child. API-key-only and Bedrock logins do not provide this account statistic.
-This uses the provider's account/workspace activity accounting, which can include
-Work/Codex activity and cached context. It is not an API billing estimate.
+Restart the service, then open `/build`. When Codex's cache is due, CodeStats
+creates a short-lived `codex app-server --stdio` child to read the account
+summary and closes only that child. It does not stop existing Codex sessions.
+A hosted Node process needs access to that user's working local login; setting
+the flag alone does not establish access.
 
 ### Cloudflare Worker
 
-A Worker cannot run the local Codex CLI. Enable `CODEX_USAGE_ENABLED=true` in its
-runtime variables, and configure a separate random `CODEX_SYNC_TOKEN` of at least
-32 characters as a Worker Secret and in your ignored local `.env`. For example,
-generate a dedicated sync secret locally with `openssl rand -hex 32`; do not reuse
-a provider credential.
+A Worker cannot run the local Codex CLI. Use an aggregate-only bridge:
 
-From a machine already signed in to Codex, run:
+1. Set `CODEX_USAGE_ENABLED=true` in the Worker's runtime variables.
+2. Generate a separate random secret of at least 32 characters, for example with
+   `openssl rand -hex 32`.
+3. Save it as `CODEX_SYNC_TOKEN` both in the Worker's **Secrets** and in the
+   sync machine's ignored `.env`. Do not reuse a provider credential.
+4. On a machine already signed in to Codex, run:
 
 ```sh
 npm run sync:codex -- https://your-worker.example
 ```
 
-This reads the official summary locally and sends only its five numeric/null
-summary fields and the observation time to `POST /api/usage/codex`. The separate
-secret is sent in an Authorization header, never in the URL. The endpoint is
-disabled unless explicitly configured; it rejects unauthenticated, oversized,
-invalid and older observations. The command does not create any timer or daemon.
-Use your existing maintenance workflow when another sync is desired.
+The command reads the summary locally and sends only five numeric/null fields
+and the observation time to `POST /api/usage/codex`. The bridge secret goes in an
+Authorization header, never in the URL. The endpoint is disabled unless
+explicitly configured, and rejects unauthenticated, oversized, invalid or older
+observations. No timer or daemon is installed; use your existing maintenance
+workflow when another sync is wanted.
 
-The footer's Codex time is the actual observation time, not the time a visitor
-loaded the card. A late or failed sync leaves the previous observation readable
-and eventually marked stale. This prevents visits from making old data look new.
+The footer's Codex time is the **observation time**, not the visitor's page-load
+time. A late or failed sync leaves the previous summary readable and eventually
+stale. Visiting the Worker does not make old imported data look fresh.
+An optional configured-profile cron also cannot renew that age; a newer bridge
+observation is required. Public ID requests cannot receive or create these imports.
 
 Official reference: [account token usage](https://learn.chatgpt.com/docs/app-server#7-token-usage-chatgpt).
 
-## Anthropic API
+## OpenRouter
 
-Set optional `ANTHROPIC_ADMIN_KEY` to an organization Admin credential. This
-supports Claude **API organization usage**, not an individual's Claude Pro/Max
-subscription, and is labelled `Anthropic API`. No anonymous personal usage
-profile is assumed. Without a configured credential, the service remains hidden.
+Set `OPENROUTER_API_KEY` to an OpenRouter **Management key**. Ordinary inference
+keys can report their spending but cannot read the account token analytics used
+here. Management keys have broad administrative privileges; CodeStats calls only
+the read-only analytics query. Keep the key server-side in a Worker Secret or an
+ignored local environment file.
 
-The collector reads `/v1/organizations/usage_report/messages` without grouping
-filters. The default is 30 completed UTC days; optional
-`ANTHROPIC_USAGE_SINCE=YYYY-MM-DD` changes the start. It sums uncached input,
-cache reads, both cache-creation categories and output tokens. Daily bucket pages
-are completed before saving a success, with a finite 32-page/45-second budget.
-An incomplete run never replaces the saved total with a partial one.
+OpenRouter has no supported anonymous username usage API for this integration.
+Public profile requests that select OpenRouter show it as unavailable rather than
+reusing the deployment's key or account totals. Configure the Management key on
+your own instance for the full five-metric row. There is no key field or
+account-usage credential accepted by `/build` or image URL parameters.
 
-This adapter is covered by isolated schema/error tests. A deployment without an
-Anthropic Admin key has no live Anthropic acceptance result.
+### Card metrics
+
+The five fields appear in this order, keeping token measurements together:
+
+| Card metric | Calculation |
+| --- | --- |
+| Total tokens | Sum of all daily tokens across the returned account-wide aggregate |
+| Tokens/day | Average daily tokens over every calendar day in the reporting interval, including inactive days |
+| Tokens/week | Average daily tokens multiplied by seven |
+| Total prompts | Sum of model request counts, not input tokens or individual chat messages |
+| Longest streak | Longest consecutive run of UTC days with positive tokens in this reporting interval |
+
+`Tokens/day` and `Tokens/week` are averages, not today's usage or the most recent
+week's total. Total prompts counts API requests, even when one request contains
+several chat messages.
+
+### Query and coverage
+
+CodeStats makes one `POST /api/v1/analytics/query` with
+`metrics: ['tokens_total', 'request_count']`, `granularity: 'day'`, an explicit UTC
+`time_range`, and no model dimensions or key/workspace filters. It aggregates all
+models, keys and workspaces visible to the account. It does not traverse
+individual generations or sum a website's top-model list.
+
+By default, the collector requests the last **367 completed UTC days** and labels
+them `Last 367 days`. Today's incomplete UTC day is excluded. To use a shorter
+interval, set `OPENROUTER_USAGE_SINCE=YYYY-MM-DD` at UTC midnight. The label then
+reads `Since YYYY-MM-DD`; the end remains the latest completed UTC day.
+
+The collector supports at most 367 days in a single query. It rejects invalid or
+longer intervals, incomplete/truncated responses, duplicate or out-of-range
+days, and unexpected warnings instead of silently replacing a good snapshot
+with partial totals. Sparse responses omit inactive days; those days still count
+in averages and break streaks. All five metrics use the same reporting interval.
+
+This is **bounded account-wide API usage**, not a claimed full-lifetime total and
+not just traffic from the supplied inference key. The website's
+**Settings → Profile → Activity** can cover a different tracked history and use
+session-only interfaces. CodeStats does not copy website sessions or relabel its
+bounded analytics as profile lifetime statistics.
+
+Official references: [analytics query](https://openrouter.ai/docs/api/api-reference/analytics/query-analytics-data),
+[metric schema and window limits](https://openrouter.ai/skills/openrouter-analytics-schema),
+[Management keys](https://openrouter.ai/docs/guides/overview/auth/management-api-keys).
+
+## Freshness and troubleshooting
+
+| Builder status | Meaning | Next step |
+| --- | --- | --- |
+| Not enabled | The usage source is not enabled on this deployment | Follow its setup link and add the server-side setting; no credential is entered in `/build` |
+| Unavailable | Configured, but no usable snapshot has succeeded yet | Read the source error in `/build`; verify login/key type and runtime settings |
+| Fresh | A current-format observation is within the configured freshness window | Check the source's reporting period before comparing totals |
+| Stale / saved data | A previous observation is still displayed while refresh is due or failing | Keep the cache; fix the source error, or sync Codex again |
+
+For OpenRouter HTTP403, check that the configured credential is a **Management
+key**, not an inference key. For missing Worker credentials, verify runtime
+Secrets rather than build-only secrets. For Codex on Node, verify the service
+user's local Codex login; for a Worker, verify the enable flag, bridge secret and
+last successful sync. Never paste credentials into the card URL or public logs.
+
+Default freshness is six hours and failed refreshes use a fifteen-minute retry
+cooldown. Upstream changes and GitHub's image cache may delay visible updates.
+The card retains per-source timestamps and may wrap the refresh footer when
+more configured sources or longer ages need space.
+
+## Advanced: Anthropic API
+
+The optional Anthropic adapter is an extension to the four-source setup. Set
+`ANTHROPIC_ADMIN_KEY` to an organization Admin credential to show an additional
+**Anthropic API** row after OpenRouter. Without that setting, no row appears.
+
+This measures Claude **API organization usage**, not a personal Claude Pro/Max
+subscription or an anonymous personal profile. The collector reads
+`/v1/organizations/usage_report/messages` without grouping filters. The default is
+30 completed UTC days; `ANTHROPIC_USAGE_SINCE=YYYY-MM-DD` changes the start.
+It sums uncached input, cache reads, both cache-creation categories and output.
+
+Daily bucket pages must complete within a finite 32-page/45-second budget before
+a success is saved. Partial runs preserve the previous total. The adapter is
+covered by isolated schema/error tests; a deployment without an Admin key has no
+live Anthropic acceptance result.
 
 Official reference: [Usage and Cost API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api).
