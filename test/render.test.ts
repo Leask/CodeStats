@@ -114,6 +114,63 @@ function usageSnapshot(services: AIService[]): StatsSnapshot {
     return data;
 }
 
+describe('built-in Anthropic provider', () => {
+    it.each([true, false])('renders its focused view with header=%s', header => {
+        const data = usageSnapshot(['codex', 'openrouter', 'anthropic']);
+        const svg = renderCard(data, { ...options, view: 'anthropic', header });
+        expect(svg).toContain('data-source-section="anthropic"');
+        expect(svg).toContain('data-provider-icon="anthropic"');
+        expect(svg).toContain('>Anthropic API</text>');
+        expect(svg).toContain('>Last 30 days</text>');
+        expect(svg).toContain('>131.3B</text>');
+        expect(svg.match(/data-source-metric=/g)).toHaveLength(1);
+        expect(svg).toContain('data-source-metric="totalTokens"');
+        expect(svg).toContain('data-refresh-source="anthropic"');
+        expect(svg).not.toContain('data-source-section="codex"');
+        expect(svg).not.toContain('data-source-section="openrouter"');
+        expect(svg).not.toContain('data-source-section="github"');
+        expect(svg).not.toContain('data-source-section="wakatime"');
+        expect(svg.includes('data-source-header="true"')).toBe(header);
+    });
+
+    it('keeps its real metric, period and timestamp in a mixed source mask', () => {
+        const data = usageSnapshot(['anthropic']);
+        data.selectedSources = ['wakatime', 'anthropic'];
+        const svg = renderCard(data, options);
+        expect(svg).toContain('data-source-section="wakatime"');
+        expect(svg).toContain('data-source-section="anthropic"');
+        expect(svg).toContain('data-refresh-source="wakatime"');
+        expect(svg).toContain('data-refresh-source="anthropic"');
+        expect(svg).not.toContain('data-source-section="github"');
+        expect(svg).not.toContain('>Peak tokens</text>');
+        expect(svg).not.toContain('>Total prompts</text>');
+    });
+
+    it('never borrows configured organization usage for a public profile', () => {
+        const data = usageSnapshot(['anthropic']);
+        data.selectedSources = ['anthropic'];
+        data.profile = { mode: 'public', accounts: { github: 'visitor' } };
+        const svg = renderCard(data, options);
+        expect(svg).toContain('data-source-section="anthropic"');
+        expect(svg).toContain('Anthropic API usage requires an organization Admin key.');
+        expect(svg).not.toContain('>131.3B</text>');
+        expect(svg).not.toContain('data-source-metric="totalTokens"');
+        expect(svg).toContain('Anthropic API: not refreshed');
+    });
+
+    it('exposes native builder controls and setup without extension wording', () => {
+        const html = renderPage();
+        expect(html).toContain('id="source-anthropic" value="anthropic"');
+        expect(html).toContain('<option value="anthropic">Anthropic API</option>');
+        expect(html).toContain('data-source-provider="anthropic"');
+        expect(html).toContain('Anthropic organization Admin key required.');
+        expect(html).toContain('AI-USAGE.md#anthropic-api');
+        expect(html).toContain('Claude Pro/Max subscription usage is not included.');
+        expect(html).not.toContain('Anthropic extension');
+        expect(html).not.toContain('advanced-anthropic-api');
+    });
+});
+
 describe('optional token usage display', () => {
     it('keeps unconfigured services absent and the original footer compact', () => {
         const svg = renderCard(activitySnapshot(), options);
@@ -857,8 +914,8 @@ describe('safe README SVG', () => {
         expect(html).not.toContain('.innerHTML');
         expect(html).not.toContain('https://cdn.');
         expect(html).toContain('Build your card.');
-        expect(html).toContain('Four sources. One developer card.');
-        expect(html.match(/data-source-provider="/g)).toHaveLength(4);
+        expect(html).toContain('Five sources. One developer card.');
+        expect(html.match(/data-source-provider="/g)).toHaveLength(5);
         expect(html).toContain('id="github-datasets"');
         expect(html).toContain('id="ai-usage-details"');
         expect(html).toContain('id="source-setup-details"');

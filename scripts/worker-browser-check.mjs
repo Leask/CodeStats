@@ -45,7 +45,13 @@ const mf = new Miniflare({
                 } });
             }
             if (url.hostname === 'api.anthropic.com') {
+                assert.equal(url.pathname, '/v1/organizations/usage_report/messages');
+                assert.equal(request.method, 'GET');
+                assert.equal(request.headers.get('authorization'), null);
                 assert.equal(request.headers.get('x-api-key'), 'isolated-anthropic-fixture');
+                assert.equal(request.headers.get('anthropic-version'), '2023-06-01');
+                assert.equal(url.searchParams.get('bucket_width'), '1d');
+                assert.equal(url.searchParams.get('limit'), '31');
                 const since = url.searchParams.get('starting_at');
                 return Response.json({ data: [{
                     starting_at: since,
@@ -97,7 +103,7 @@ try {
     const imported = await (await mf.dispatchFetch(origin + '/api/stats')).json();
     checks.codexObservationAgePreserved = imported.aiUsage.codex.lastSuccessAt
         === observation.observedAt;
-    checks.allOptionalSourcesCollected = imported.aiUsage.openrouter.data.totalTokens === 42000
+    checks.allBuiltInUsageSourcesCollected = imported.aiUsage.openrouter.data.totalTokens === 42000
         && imported.aiUsage.anthropic.data.totalTokens === 250
         && imported.aiUsage.codex.data.totalTokens === 131320846898;
     const openrouter = imported.aiUsage.openrouter.data;
@@ -107,6 +113,8 @@ try {
         && openrouter.summary.longestStreakDays === 1
         && openrouter.summary.averageDailyTokens === 42000 / 367
         && openrouter.summary.averageWeeklyTokens === 42000 / 367 * 7;
+    checks.fiveSourcesSelected = JSON.stringify(imported.selectedSources)
+        === JSON.stringify(['github', 'wakatime', 'codex', 'openrouter', 'anthropic']);
     checks.usageCredentialsNotPublished = !JSON.stringify(imported).includes(syncToken)
         && !JSON.stringify(imported).includes('isolated-management-fixture')
         && !JSON.stringify(imported).includes('isolated-anthropic-fixture')
@@ -137,10 +145,9 @@ try {
     await page.waitForFunction(() => document.querySelector('#loading').hidden);
     await page.locator('#card').evaluate(image => image.decode());
     checks.partialSourceStillRenders = await page.locator('#language-body tr').count() === 2;
-    checks.fourPrimaryProviderCards = JSON.stringify(await page.locator('[data-source-provider]')
-        .evaluateAll(nodes => nodes.map(node => node.dataset.sourceProvider)
-            .filter(service => service !== 'anthropic')))
-        === JSON.stringify(['github', 'wakatime', 'codex', 'openrouter']);
+    checks.fivePrimaryProviderCards = JSON.stringify(await page.locator('[data-source-provider]')
+        .evaluateAll(nodes => nodes.map(node => node.dataset.sourceProvider)))
+        === JSON.stringify(['github', 'wakatime', 'codex', 'openrouter', 'anthropic']);
     checks.groupedGitHubStatusHonest = await page.locator('#github-provider-status')
         .textContent() === 'unavailable'
         && await page.locator('#github-datasets').getAttribute('open') !== null
@@ -220,6 +227,15 @@ try {
             && !document.querySelector('[data-section="footer"] [data-profile-rank]')
             && !document.querySelector('[data-section="footer"] [data-profile-identity]');
     });
+    await page.goto(origin + '/card.svg?view=anthropic');
+    checks.anthropicFocusedView = await page.locator(
+        '[data-source-section="anthropic"]',
+    ).count() === 1
+        && await page.locator('[data-source-section]').count() === 1
+        && await page.locator('[data-source-metric="totalTokens"] > text').first()
+            .textContent() === '250'
+        && await page.locator('[data-refresh-source="anthropic"]').count() === 1
+        && await page.locator('[data-provider-icon="anthropic"] path').count() >= 1;
     await page.goto(origin + '/build?theme=dark&view=activity&header=false');
     await page.waitForFunction(() => document.querySelector('#loading').hidden);
     checks.builderQueryOptions = await page.locator('#theme').inputValue() === 'dark'

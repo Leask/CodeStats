@@ -55,6 +55,20 @@ describe('configured and public profile selection', () => {
             CODEX_SYNC_TOKEN: undefined }).sources).not.toContain('codex');
     });
 
+    it('infers Anthropic only from its configured Admin credential', () => {
+        expect(resolveProfile(url(), settings).sources).toContain('anthropic');
+        expect(resolveProfile(url(), { ...settings, ANTHROPIC_ADMIN_KEY: ' ' })
+            .sources).not.toContain('anthropic');
+        expect(resolveProfile(url('?sources=anthropic'), settings).sources)
+            .toEqual(['anthropic']);
+        const selection = resolveProfile(url('?github=visitor&sources=anthropic'), settings);
+        expect(selection.mode).toBe('public');
+        expect(selection.sources).toEqual(['anthropic']);
+        expect(publicSettings(settings, selection)).not.toHaveProperty('ANTHROPIC_ADMIN_KEY');
+        expect(resolveProfile(url('?github=visitor'), settings).sources)
+            .toEqual(['github']);
+    });
+
     it('enters isolated public mode even for an account matching the owner', () => {
         const selected = resolveProfile(url('?github=OWNER'), settings);
         expect(selected).toEqual({
@@ -89,7 +103,7 @@ describe('configured and public profile selection', () => {
     });
 
     it.each(['', ' ', 'github,', ',codex', 'github,,codex', 'github,github',
-        'GitHub,github', 'unknown', 'anthropic'])(
+        'GitHub,github', 'unknown', 'anthropic,anthropic'])(
         'rejects an invalid explicit source mask %j', value => {
             const target = url(); target.searchParams.set('sources', value);
             expect(() => resolveProfile(target, settings)).toThrow('Sources');

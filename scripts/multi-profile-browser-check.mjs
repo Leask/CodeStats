@@ -9,19 +9,20 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
 // All requests execute the actual Wrangler bundle, with finite fake upstreams.
 // Chrome uses a fresh context; no existing browser profile or account is read.
-const providers = ['github', 'wakatime', 'codex', 'openrouter'];
+const providers = ['github', 'wakatime', 'codex', 'openrouter', 'anthropic'];
 const origin = 'https://multi-profile.codestats.test';
 const config = JSON.parse(await readFile('wrangler.jsonc', 'utf8'));
 const temporary = await mkdtemp(join(tmpdir(), 'codestats-multi-browser-'));
 const syncToken = 'isolated-multi-sync-fixture-not-a-secret'.repeat(2);
 const wakaToken = 'isolated-waka-owner-fixture';
 const routerToken = 'isolated-router-owner-fixture';
+const anthropicToken = 'isolated-anthropic-owner-fixture';
 const upstreamCalls = [];
 const browserCalls = [];
 const checks = {};
 const layoutCases = [];
 const errors = [];
-const masks = Array.from({ length: 15 }, (_, index) => providers
+const masks = Array.from({ length: 2 ** providers.length - 1 }, (_, index) => providers
     .filter((_, bit) => (index + 1) & (1 << bit)));
 
 function waka(username, seconds) {
@@ -41,7 +42,9 @@ function ownerId(username) { return username === 'owner' ? 1 : 2; }
 async function upstream(request) {
     const url = new URL(request.url);
     const authorization = request.headers.get('authorization');
-    upstreamCalls.push({ host: url.hostname, path: url.pathname, authorization });
+    const apiKey = request.headers.get('x-api-key');
+    upstreamCalls.push({ host: url.hostname, path: url.pathname, authorization, apiKey });
+    if (url.hostname !== 'api.anthropic.com') assert.equal(apiKey, null);
     if (url.hostname === 'api.github.com') {
         assert.equal(authorization, null);
         if (url.pathname.startsWith('/search/')) {
@@ -89,6 +92,25 @@ async function upstream(request) {
             tokens_total: '42000000', request_count: '129146',
         }], metadata: { row_count: 1, truncated: false } } });
     }
+    if (url.hostname === 'api.anthropic.com') {
+        assert.equal(url.pathname, '/v1/organizations/usage_report/messages');
+        assert.equal(request.method, 'GET');
+        assert.equal(authorization, null);
+        assert.equal(apiKey, anthropicToken);
+        assert.equal(request.headers.get('anthropic-version'), '2023-06-01');
+        assert.equal(url.searchParams.get('bucket_width'), '1d');
+        assert.equal(url.searchParams.get('limit'), '31');
+        const since = url.searchParams.get('starting_at');
+        assert.equal((Date.parse(url.searchParams.get('ending_at'))
+            - Date.parse(since)) / 86_400_000, 30);
+        return Response.json({ data: [{ starting_at: since,
+            ending_at: new Date(Date.parse(since) + 86_400_000).toISOString(),
+            results: [{ uncached_input_tokens: 100, output_tokens: 50,
+                cache_read_input_tokens: 70, cache_creation: {
+                    ephemeral_5m_input_tokens: 20, ephemeral_1h_input_tokens: 10,
+                } }],
+        }], has_more: false, next_page: null });
+    }
     throw new Error('Unexpected outbound origin in isolated browser test.');
 }
 
@@ -102,7 +124,7 @@ const mf = new Miniflare({
             WAKATIME_USERNAME: 'owner', WAKATIME_TOKEN: wakaToken,
             CODEX_USERNAME: 'owner-codex', CODEX_USAGE_ENABLED: 'true',
             CODEX_SYNC_TOKEN: syncToken, OPENROUTER_API_KEY: routerToken,
-            ANTHROPIC_ADMIN_KEY: '', AUTO_REFRESH_SECONDS: '0' },
+            ANTHROPIC_ADMIN_KEY: anthropicToken, AUTO_REFRESH_SECONDS: '0' },
         outboundService: upstream,
     }),
     resourcePersistencePath: temporary,
@@ -163,6 +185,10 @@ function renderFixture(selected) {
                 scope: 'Synthetic OpenRouter aggregate', summary: {
                     averageDailyTokens: 797955, averageWeeklyTokens: 5585688,
                     longestStreakDays: 120 } }),
+            anthropic: source({ service: 'anthropic', label: 'Anthropic API',
+                totalTokens: 250, period: 'Last 30 days',
+                since: '2026-09-28T00:00:00Z', until: '2026-10-28T00:00:00Z',
+                scope: 'Synthetic organization API usage, excluding subscriptions' }),
         },
     };
 }
@@ -222,7 +248,9 @@ try {
     assert.equal(owner.wakatime.data.totalSeconds, 654320);
     assert.equal(owner.aiUsage.codex.data.totalTokens, 131320846898);
     assert.equal(owner.aiUsage.openrouter.data.totalTokens, 42000000);
-    checks.configuredFourProviders = owner.selectedSources.length === 4;
+    assert.equal(owner.aiUsage.anthropic.data.totalTokens, 250);
+    checks.configuredFiveProviders = JSON.stringify(owner.selectedSources)
+        === JSON.stringify(providers);
     for (const selected of masks) {
         const value = await json('/api/stats?sources=' + selected.join(','));
         assert.deepEqual(value.selectedSources, selected);
@@ -230,15 +258,18 @@ try {
         assert.equal(value.wakatime.data !== null, selected.includes('wakatime'));
         assert.equal(!!value.aiUsage?.codex?.data, selected.includes('codex'));
         assert.equal(!!value.aiUsage?.openrouter?.data, selected.includes('openrouter'));
+        assert.equal(!!value.aiUsage?.anthropic?.data, selected.includes('anthropic'));
     }
-    checks.configuredFifteenMasks = true;
+    checks.configuredThirtyOneMasks = true;
     const before = upstreamCalls.length;
     const sameName = await json('/api/stats?github=owner&wakatime=owner&codex=owner-codex'
-        + '&sources=github,wakatime,codex,openrouter');
+        + '&sources=' + providers.join(','));
     checks.sameNamePublicIsolation = sameName.profile.mode === 'public'
         && sameName.github.data.visibility === 'public' && sameName.wakatime.data === null
         && sameName.aiUsage.codex.data === null && sameName.aiUsage.openrouter.data === null
-        && upstreamCalls.slice(before).every(call => call.authorization === null);
+        && sameName.aiUsage.anthropic.data === null
+        && upstreamCalls.slice(before).every(call => call.authorization === null
+            && call.apiKey === null && !['api.anthropic.com', 'openrouter.ai'].includes(call.host));
     assert.ok(checks.sameNamePublicIsolation);
     const rejected = await mf.dispatchFetch(origin + '/api/stats?github=alice&token=fixture-do-not-echo');
     checks.secretQueryRejected = rejected.status === 400
@@ -288,6 +319,7 @@ try {
     checks.canonicalCodexLink = await page.locator('#codex-profile-link').getAttribute('href')
         === 'https://chatgpt.com/u/visitor-codex';
     await page.locator('#source-openrouter').check(); await wait();
+    await page.locator('#source-anthropic').check(); await wait();
     checks.sourceCheckboxUpdatesRequest = new URL(
         await page.locator('#card').getAttribute('src'), origin,
     ).searchParams.get('sources') === providers.join(',');
@@ -324,6 +356,7 @@ try {
         assert.equal(native.wakatime.data !== null, selected.includes('wakatime'));
         assert.equal(native.aiUsage?.codex?.data ?? null, null);
         assert.equal(native.aiUsage?.openrouter?.data ?? null, null);
+        assert.equal(native.aiUsage?.anthropic?.data ?? null, null);
         for (const view of providers) {
             await page.locator('#view').selectOption(view);
             await page.locator('#card').evaluate(image => image.decode());
@@ -361,7 +394,7 @@ try {
         assert.deepEqual(review.outOfBounds, [], JSON.stringify(entry));
         assert.deepEqual(review.collisions, [], JSON.stringify(entry));
         assert.equal(review.footerCollision, false, JSON.stringify(entry));
-        if (selected.length === 4 && width === 880 && header) {
+        if (selected.length === providers.length && width === 880 && header) {
             await svgPage.locator('main > svg').screenshot({
                 path: 'artifacts/multi-profile-focused-' + view + '.png',
             });
@@ -394,14 +427,14 @@ try {
             path: 'artifacts/multi-profile-public-' + view + '.png',
         });
     }
-    checks.allFifteenMasks = true;
+    checks.allThirtyOneMasks = true;
     checks.focusedAndPartialGeometry = layoutCases.length > 200;
     checks.noBrowserErrors = errors.length === 0;
     checks.noExternalBrowserAssets = browserCalls.every(url => new URL(url).origin === origin);
     checks.noSecretsInBrowserUrls = browserCalls.every(url => !/token|api_key|access_key/i
         .test(new URL(url).search));
     const body = await page.content();
-    checks.noOwnerSecretsInBuilder = [syncToken, wakaToken, routerToken].every(value =>
+    checks.noOwnerSecretsInBuilder = [syncToken, wakaToken, routerToken, anthropicToken].every(value =>
         !body.includes(value) && !JSON.stringify(browserCalls).includes(value));
     const result = { checkedAt: new Date().toISOString(), checks,
         surface: 'Isolated Chrome Beta through Playwright',

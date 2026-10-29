@@ -1,6 +1,6 @@
 # 📊 CodeStats
 
-Your **GitHub, WakaTime, Codex and OpenRouter** activity in one profile card.
+Your **GitHub, WakaTime, Codex, OpenRouter and Anthropic API** activity in one profile card.
 Run it on **Node.js** or **Cloudflare Workers**, then paste one Markdown snippet
 into your GitHub README.
 
@@ -11,7 +11,7 @@ for each source. It does not depend on another statistics-card service.
 One deployment can serve a configured profile and public profiles selected by
 username. Tokens stay on the server; the builder accepts names and IDs only.
 
-## Four sources, one card
+## Five sources, one card
 
 | Source | What the card shows | Collection and reporting scope |
 | --- | --- | --- |
@@ -19,21 +19,22 @@ username. Tokens stay on the server; the builder accepts names and IDs only.
 | **WakaTime** | Coding hours and language time | Named public statistics first; optional owner-verified OAuth fallback for the same range |
 | **Codex** | Total tokens, peak tokens, longest task, longest streak and current streak | Configured local account/aggregate sync; a public ID alone provides a profile link, not anonymous usage |
 | **OpenRouter** | Total tokens, tokens/day, tokens/week, total prompts and longest streak | One account-wide analytics query for the last 367 completed UTC days by default |
+| **Anthropic API** | Total Claude API tokens across input, output and cache usage | Organization usage API; last 30 completed UTC days by default, not Claude Pro/Max subscription activity |
 
-GitHub and WakaTime form the language comparison. Codex and OpenRouter add
+GitHub and WakaTime form the language comparison. Codex, OpenRouter and Anthropic API add
 independent usage rows below it when configured. You can start with GitHub and
-WakaTime, then add either usage source; unconfigured usage rows stay hidden.
+WakaTime, then add any usage source; unconfigured usage rows stay hidden.
 Totals from different providers are never added together.
 
 The card includes a GitHub avatar with a rank border, eight overview metrics,
 nine grouped languages plus Others, per-language repository counts, and separate
 GitHub/WakaTime percentage scales. Light, dark and transparent styles work with
-GitHub README images. `/build` provides the preview, four provider status cards,
+GitHub README images. `/build` provides the preview, five provider status cards,
 language/activity/usage details and Markdown generator. Disabled usage sources
 remain visible there as **Not enabled**, with a setup link.
 
-An additional [Anthropic API adapter](docs/AI-USAGE.md#advanced-anthropic-api)
-is available as an opt-in extension, separate from the four-source setup.
+All five integrations are built in. No provider plugin or separate installation
+is needed; configure only the sources you want to display.
 
 ## 1. Get the project
 
@@ -60,6 +61,7 @@ not in the builder, image URLs or README.
 | WakaTime | Published username/range; optional owner OAuth token for fallback or token-only setup | [Permissions](docs/DEPLOYMENT.md#credentials) |
 | Codex | `CODEX_USERNAME` or sync secret auto-enables it; local login/Worker aggregate sync supplies usage | [Codex setup](docs/AI-USAGE.md#codex) |
 | OpenRouter | `OPENROUTER_API_KEY` containing a **Management key** | [OpenRouter setup](docs/AI-USAGE.md#openrouter) |
+| Anthropic API | `ANTHROPIC_ADMIN_KEY` containing an **organization Admin key** | [Anthropic setup](docs/AI-USAGE.md#anthropic-api) |
 
 For full GitHub visibility, use a classic personal access token for the displayed
 account with `repo`, `read:user` and `read:org`, or an OAuth token declaring those
@@ -84,7 +86,7 @@ Codex uses the existing local login; do not copy its login tokens to the server.
 ```sh
 cp .env.example .env
 # Edit .env: set the names and optional credentials for your sources.
-# Add a Codex ID and the OpenRouter Management key when wanted.
+# Add a Codex ID, OpenRouter Management key or Anthropic Admin key when wanted.
 chmod 600 .env
 npm start
 ```
@@ -159,7 +161,7 @@ See [dashboard setup](docs/DEPLOYMENT.md#workers-builds-dashboard).
    separate repository and activity datasets within the same provider.
 2. Choose **Account mode**: configured accounts or public usernames/IDs. Enter
    bare IDs for public mode, select source checkboxes, then the range and
-   appearance. Overview stays the default; four source views are also available.
+   appearance. Overview stays the default; five source views are also available.
 3. Review the card and expandable data tables. A missing statistic is a dash,
    while saved data retains its original successful timestamp.
 4. In **Add to your GitHub README**, enter your public HTTPS origin and click
@@ -189,8 +191,10 @@ Any explicit account parameter selects **public mode**, even if it matches the
 configured owner. Omitted accounts, private snapshots, local Codex usage and
 provider credentials are never inherited. `sources=github,codex` selects a subset;
 without account parameters it selects from the configured profile. Public Codex
-usage remains unavailable behind its login requirement, and OpenRouter requires
-the deployment's Management key. [Profiles and source views](docs/EMBEDDING.md).
+usage remains unavailable behind its login requirement. OpenRouter and Anthropic
+usage require server-configured credentials and remain unavailable in public-ID
+mode. Use `sources=anthropic` or `view=anthropic` without an account parameter
+to select the configured Anthropic organization. [Profiles and source views](docs/EMBEDDING.md).
 
 ## Cache, freshness and privacy
 
@@ -226,7 +230,7 @@ See [metric definitions](docs/METRICS.md) and [usage scopes](docs/AI-USAGE.md).
 - [Deployment, settings and troubleshooting](docs/DEPLOYMENT.md)
 - [README snippets, themes and endpoint options](docs/EMBEDDING.md)
 - [Statistics, language grouping and rank semantics](docs/METRICS.md)
-- [Codex and OpenRouter usage setup](docs/AI-USAGE.md)
+- [Codex, OpenRouter and Anthropic API usage setup](docs/AI-USAGE.md)
 - [Differences from GitHub Stats Extended](docs/github-collection-plan.md)
 - [Development and validation](docs/VALIDATION.md)
 - [Implementation contract](docs/CONTRACT.md)
@@ -241,7 +245,7 @@ Their work inspired the design and development of CodeStats.
 
 CodeStats independently rebuilds the collection and aggregation engine,
 persistent cache, Node.js/Cloudflare Workers runtimes and SVG rendering.
-GitHub, WakaTime and OpenRouter use their own APIs; Codex statistics use the
+GitHub, WakaTime, OpenRouter and Anthropic use their own APIs; Codex statistics use the
 official local account-usage method and optional aggregate bridge.
 
 The reference ranking formula and bundled icon assets retain their original

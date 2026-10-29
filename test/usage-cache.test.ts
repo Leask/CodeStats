@@ -46,27 +46,29 @@ describe('optional usage snapshots', () => {
         expect((await cache.read('all_time', () => {})).aiUsage).toBeUndefined();
     });
 
-    it('preserves each service success and cooldown after failure and restart', async () => {
+    it.each(['openrouter', 'anthropic'] as const)(
+        'preserves %s success and cooldown after failure and restart', async service => {
         let clock = now;
         const storage = new MemoryStorage();
-        const fetchUsage = vi.fn(async () => usage);
+        const data = { ...usage, service };
+        const fetchUsage = vi.fn(async () => data);
         const policy = { freshSeconds: 60, retrySeconds: 30, now: () => clock };
-        const load = { ...loaders, aiUsage: { openrouter: fetchUsage } };
+        const load = { ...loaders, aiUsage: { [service]: fetchUsage } };
         const cache = new SnapshotCache(storage, load, policy);
         const first = await cache.read('all_time', () => {});
-        expect(first.aiUsage!.openrouter).toMatchObject({
-            data: usage, status: 'fresh', lastSuccessAt: at,
+        expect(first.aiUsage![service]).toMatchObject({
+            data, status: 'fresh', lastSuccessAt: at,
         });
         clock += 61_000;
         fetchUsage.mockRejectedValue(new Error('fixture-private-diagnostic'));
         const pending: Promise<unknown>[] = [];
         const stale = await cache.read('last_7_days', promise => pending.push(promise));
-        expect(stale.aiUsage!.openrouter!.data).toEqual(usage);
+        expect(stale.aiUsage![service]!.data).toEqual(data);
         await Promise.all(pending);
         const restart = new SnapshotCache(storage, load, policy);
         const failed = await restart.read('last_30_days', () => {});
-        expect(failed.aiUsage!.openrouter).toMatchObject({
-            data: usage, status: 'stale', lastSuccessAt: at,
+        expect(failed.aiUsage![service]).toMatchObject({
+            data, status: 'stale', lastSuccessAt: at,
             lastError: 'Token usage refresh failed; saved data is retained.',
         });
         expect(JSON.stringify(failed)).not.toContain('fixture-private-diagnostic');

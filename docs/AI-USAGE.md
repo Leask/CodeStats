@@ -1,13 +1,13 @@
-# Codex and OpenRouter usage
+# Codex, OpenRouter and Anthropic API usage
 
 [Back to CodeStats](../README.md) · [Deployment settings](DEPLOYMENT.md)
 
-CodeStats has four primary sources: **GitHub, WakaTime, Codex and OpenRouter**.
-This guide connects the two usage sources. GitHub and WakaTime configuration is
+CodeStats has five built-in sources: **GitHub, WakaTime, Codex, OpenRouter and
+Anthropic API**. This guide connects the three usage sources. GitHub and WakaTime configuration is
 covered in the [deployment guide](DEPLOYMENT.md#credentials).
 
 The card shows configured usage sources below the language table, with **Codex
-first, then OpenRouter**. Each has its own reporting period, cache and refresh
+first, then OpenRouter, then Anthropic API**. Each has its own reporting period, cache and refresh
 time. Their totals are never added together: the periods and accounting rules
 differ, and the same activity may appear in more than one system.
 
@@ -16,6 +16,7 @@ differ, and the same activity may appear in more than one system.
 | Codex on Node | A configured `CODEX_USERNAME` or `CODEX_SYNC_TOKEN`, plus the service user's existing Codex CLI login | Official account/workspace lifetime summary |
 | Codex on a Worker | Run the local sync command; it can install its own dedicated `CODEX_SYNC_TOKEN` | Lifetime summary as of the last imported observation |
 | OpenRouter | `OPENROUTER_API_KEY` containing a Management key | Last 367 completed UTC days, or a shorter configured interval |
+| Anthropic API | `ANTHROPIC_ADMIN_KEY` containing an organization Admin key | Last 30 completed UTC days, or the configured UTC start date |
 
 Codex auto-enables from its configured ID or sync secret. No extra flag is
 required. `CODEX_USAGE_ENABLED=false` explicitly disables it, including when
@@ -23,17 +24,17 @@ those settings are present. `true` remains available for Node users who want
 local CLI collection without an ID or sync secret. Remove an old sample's
 explicit `false` line when switching to automatic enabling.
 
-Usage credentials apply only to the configured profile. `sources=codex` or
-`sources=openrouter` can select that configured subset without an account
+Usage credentials apply only to the configured profile. `sources=codex`,
+`sources=openrouter` or `sources=anthropic` can select that configured subset without an account
 parameter. Any explicit public `github`, `wakatime` or `codex` ID switches the
 entire request to public mode and strips all owner credentials/imports, including
-the same-ID case. `view=codex` and `view=openrouter` provide focused cards;
+the same-ID case. `view=codex`, `view=openrouter` and `view=anthropic` provide focused cards;
 overview remains the default.
 
-The builder always shows the four primary provider cards. An unconfigured
-Codex/OpenRouter card says **Not enabled** and links to setup; its usage row and
-refresh time remain absent from the SVG. A configured source without usable
-data is shown as unavailable, not as zero. After its first success, failed
+The builder always shows the five built-in provider cards. An unconfigured
+Codex/OpenRouter/Anthropic card says **Not enabled** and links to setup; its usage row and
+refresh time remain absent from the default SVG. An explicitly selected source
+without configuration or usable data is shown as unavailable, not as zero. After its first success, failed
 refreshes preserve the last good value, reporting period and observation time.
 The builder reports the failure while the card remains readable.
 
@@ -227,21 +228,53 @@ cooldown. Upstream changes and GitHub's image cache may delay visible updates.
 The card retains per-source timestamps and may wrap the refresh footer when
 more configured sources or longer ages need space.
 
-## Advanced: Anthropic API
+<a id="advanced-anthropic-api"></a>
 
-The optional Anthropic adapter is an extension to the four-source setup. Set
-`ANTHROPIC_ADMIN_KEY` to an organization Admin credential to show an additional
-**Anthropic API** row after OpenRouter. Without that setting, no row appears.
+## Anthropic API
+
+Anthropic API is built in, with the same source selector, focused view,
+independent cache, status panel and refresh timestamp as the other providers.
+No plugin or extra package is required. Set `ANTHROPIC_ADMIN_KEY` to an
+organization **Admin key** to enable collection automatically. On Node, put it
+in the ignored server environment file. On Workers, save it as a runtime
+**Secret**, or a Workers Builds Secret deployed with `npm run deploy:ci`.
+
+```dotenv
+ANTHROPIC_ADMIN_KEY=your-organization-admin-key
+# Optional; omit for the last 30 completed UTC days:
+# ANTHROPIC_USAGE_SINCE=YYYY-MM-DD
+```
+
+Keep the actual key out of Git, `/build` inputs and share URLs. The **Anthropic
+API** row follows OpenRouter in overview. Use `?view=anthropic` for its focused
+card, or `?sources=anthropic` for an Anthropic-only configured card. The full
+source mask is `sources=github,wakatime,codex,openrouter,anthropic`.
+Without a key, Anthropic stays visible in the builder with setup guidance but
+is omitted from the default SVG and its footer. Explicitly selecting an
+unconfigured source shows unavailable metrics rather than fabricated zeros.
 
 This measures Claude **API organization usage**, not a personal Claude Pro/Max
-subscription or an anonymous personal profile. The collector reads
+subscription or an anonymous personal profile. An ordinary inference API key
+does not replace an organization Admin key. A public username cannot authorize
+this API: adding any public `github`, `wakatime` or `codex` ID isolates the whole
+request and never inherits the owner's Anthropic key, cache or totals.
+
+The collector reads
 `/v1/organizations/usage_report/messages` without grouping filters. The default is
 30 completed UTC days; `ANTHROPIC_USAGE_SINCE=YYYY-MM-DD` changes the start.
-It sums uncached input, cache reads, both cache-creation categories and output.
+Its **Total tokens** metric sums uncached input, cache-read input, 5-minute and
+1-hour cache-creation input, and output tokens. These API accounting categories
+are not interchangeable with a Claude subscription total, requests or unique
+prompts. No unsupported streak, request or lifetime metrics are invented.
 
 Daily bucket pages must complete within a finite 32-page/45-second budget before
-a success is saved. Partial runs preserve the previous total. The adapter is
-covered by isolated schema/error tests; a deployment without an Admin key has no
-live Anthropic acceptance result.
+a success is saved. A failed or partial refresh preserves the last successful
+total, reporting period and observation time. `FRESH_SECONDS` and `RETRY_SECONDS`
+apply as they do for the other sources. Anthropic has its own refresh time; its
+period and totals are never merged with the other services.
+
+The collector has isolated schema/error tests. A deployment without an Admin
+key has no live Anthropic acceptance result; a passing fixture test does not
+establish that a real organization's API access works.
 
 Official reference: [Usage and Cost API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api).

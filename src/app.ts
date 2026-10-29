@@ -24,7 +24,7 @@ function cardOptions(url: URL): CardOptions {
     const header = url.searchParams.get('header') ?? 'true';
     if (!['dark', 'light', 'transparent'].includes(theme)
         || !['overview', 'languages', 'activity', 'github', 'wakatime',
-            'codex', 'openrouter'].includes(view)
+            'codex', 'openrouter', 'anthropic'].includes(view)
         || !['alternating', 'time', 'code', 'name'].includes(sort)) {
         throw new Error('Invalid theme, view or sort option.');
     }
@@ -90,6 +90,7 @@ export function createHandler<Config extends Settings>(
                         wakatimeTokenConfigured: Boolean(env.WAKATIME_TOKEN?.trim()),
                         codexUsageEnabled: codexUsageEnabled(env),
                         openrouterTokenConfigured: Boolean(env.OPENROUTER_API_KEY?.trim()),
+                        anthropicTokenConfigured: Boolean(env.ANTHROPIC_ADMIN_KEY?.trim()),
                     },
                 }, { headers: { 'Cache-Control': 'no-store' } });
             } else if (url.pathname === '/favicon.svg') {
@@ -123,9 +124,7 @@ export function createHandler<Config extends Settings>(
                         lastAttemptAt: null, lastError: null, retryAt: null,
                         status: 'unavailable' as const, enabled: false });
                     const aiUsage = Object.fromEntries(Object.entries(data.aiUsage ?? {})
-                        .filter(([service]) => selected.has(service)
-                            || (service === 'anthropic' && selection.mode === 'configured'
-                                && !url.searchParams.has('sources'))));
+                        .filter(([service]) => selected.has(service)));
                     data = { ...data,
                         github: selected.has('github') ? data.github : disabled(),
                         githubActivity: selected.has('github') ? data.githubActivity : undefined,
@@ -160,11 +159,13 @@ export function createHandler<Config extends Settings>(
                                 !== selection.accounts.wakatime)) {
                             data.wakatime = unavailable('Public WakaTime identity did not match.');
                         }
-                        for (const service of ['codex', 'openrouter'] as const) {
+                        for (const service of ['codex', 'openrouter', 'anthropic'] as const) {
                             if (data.aiUsage?.[service]) {
                                 data.aiUsage[service] = unavailable(service === 'codex'
                                     ? 'Codex usage requires access to that account; a public ID is not authorization.'
-                                    : 'OpenRouter usage requires a configured account Management key.');
+                                    : service === 'openrouter'
+                                    ? 'OpenRouter usage requires a configured account Management key.'
+                                    : 'Anthropic API usage requires a configured organization Admin key.');
                             }
                         }
                     }

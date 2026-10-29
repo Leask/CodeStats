@@ -14,7 +14,7 @@ import { CLOCK_ICON, GITHUB_ICON, METRIC_ICONS, TROPHY_ICON } from './ui-icons';
 import { PROVIDER_ICONS } from './provider-icons';
 import { profileRank } from './rank';
 import { renderSourceCard } from './source-card';
-import { normalizeProfileAccount } from './profile';
+import { normalizeProfileAccount, PRIMARY_SOURCES } from './profile';
 
 const ALIASES: Record<string, string> = {
     bash: 'shell',
@@ -692,7 +692,7 @@ function refreshLines(labels: string[], maximumWidth: number): string[] {
 }
 
 export function renderCard(snapshot: StatsSnapshot, options: CardOptions): string {
-    const sourceView = ['github', 'wakatime', 'codex', 'openrouter'].includes(options.view);
+    const sourceView = PRIMARY_SOURCES.some(service => service === options.view);
     const partial = snapshot.selectedSources
         && (!snapshot.selectedSources.includes('github')
             || !snapshot.selectedSources.includes('wakatime'));
@@ -1129,7 +1129,7 @@ export function renderPage(defaultRange: Range = 'all_time'): string {
     const sourceIcon = (path: string, size = 16) =>
         `<svg class="source-icon" viewBox="0 0 ${size} ${size}" `
         + `aria-hidden="true" fill="currentColor"><path d="${path}"/></svg>`;
-    const optionalPlaceholders = (['codex', 'openrouter'] as const).map(service =>
+    const optionalPlaceholders = (['codex', 'openrouter', 'anthropic'] as const).map(service =>
         `<div class="source-state" data-source-provider="${service}">`
         + '<div class="source-head"><span class="source-name">'
         + sourceIcon(PROVIDER_ICONS[service], 24) + AI_LABELS[service] + '</span>'
@@ -1257,10 +1257,10 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 <div class="shell">
 <nav><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>CodeStats</div>
 <div class="nav-links"><a href="${docs}DEPLOYMENT.md" target="_blank" rel="noopener noreferrer">Setup guide ↗</a><span class="local" id="environment">CARD BUILDER</span></div></nav>
-<header class="hero"><div><div class="eyebrow">Four sources. One developer card.</div><h1>Build your card.</h1>
-<p>GitHub activity, WakaTime coding hours, Codex and OpenRouter usage.<br>Choose your style, then copy one Markdown snippet.</p>
-<div class="source-strip" aria-label="Supported sources"><span>${sourceIcon(GITHUB_ICON)}GitHub</span><span>${sourceIcon(CLOCK_ICON)}WakaTime</span><span>${sourceIcon(PROVIDER_ICONS.codex, 24)}Codex</span><span>${sourceIcon(PROVIDER_ICONS.openrouter, 24)}OpenRouter</span></div></div>
-<div class="identity"><strong id="identity">Loading profile</strong><small id="enabled-sources">Four source types · independent snapshots</small></div></header>
+<header class="hero"><div><div class="eyebrow">Five sources. One developer card.</div><h1>Build your card.</h1>
+<p>GitHub activity, WakaTime coding hours, Codex, OpenRouter and Anthropic API usage.<br>Choose your style, then copy one Markdown snippet.</p>
+<div class="source-strip" aria-label="Supported sources"><span>${sourceIcon(GITHUB_ICON)}GitHub</span><span>${sourceIcon(CLOCK_ICON)}WakaTime</span><span>${sourceIcon(PROVIDER_ICONS.codex, 24)}Codex</span><span>${sourceIcon(PROVIDER_ICONS.openrouter, 24)}OpenRouter</span><span>${sourceIcon(PROVIDER_ICONS.anthropic, 24)}Anthropic API</span></div></div>
+<div class="identity"><strong id="identity">Loading profile</strong><small id="enabled-sources">Five source types · independent snapshots</small></div></header>
 <div class="layout">
 <aside>
 <details class="accounts" id="accounts"><summary>Accounts</summary>
@@ -1283,6 +1283,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 <label><input type="checkbox" id="source-wakatime" value="wakatime" checked> WakaTime</label>
 <label><input type="checkbox" id="source-codex" value="codex" checked> Codex</label>
 <label><input type="checkbox" id="source-openrouter" value="openrouter" checked> OpenRouter</label>
+<label><input type="checkbox" id="source-anthropic" value="anthropic" checked> Anthropic API</label>
 </fieldset>
 <div class="control"><label for="range">WakaTime range</label><select id="range" aria-describedby="range-help"><option value="all_time">All time</option>
 <option value="last_7_days">Last 7 days</option><option value="last_30_days">Last 30 days</option></select><small class="control-hint" id="range-help">GitHub and AI periods stay independent.</small></div>
@@ -1293,6 +1294,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 <div class="control"><label for="view">View</label><select id="view"><option value="overview">Overview</option>
 <option value="github">GitHub</option><option value="wakatime">WakaTime</option>
 <option value="codex">Codex</option><option value="openrouter">OpenRouter</option>
+<option value="anthropic">Anthropic API</option>
 <optgroup label="Expanded details"><option value="languages">Language detail</option>
 <option value="activity">GitHub activity</option></optgroup></select></div>
 <div class="control"><label for="sort">Language order</label><select id="sort"><option value="code">GitHub code first</option>
@@ -1314,7 +1316,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 </aside>
 <main>
 <div class="preview-label"><span>README card</span><a id="json-link" href="/api/stats?range=all_time" target="_blank" rel="noopener">View source JSON ↗</a></div>
-<div class="card-stage" id="stage"><div class="loading" id="loading">Fetching your first snapshot<span>Reading your configured GitHub, WakaTime, Codex and OpenRouter sources.</span></div>
+<div class="card-stage" id="stage"><div class="loading" id="loading">Fetching your first snapshot<span>Reading your configured GitHub, WakaTime, Codex, OpenRouter and Anthropic API sources.</span></div>
 <img id="card" alt="CodeStats developer card: GitHub, WakaTime and configured AI usage" hidden></div>
 <p class="note" id="range-note">WakaTime measures tracked coding time. GitHub measures current repository language bytes, not personally authored lines.</p>
 <details id="language-details"><summary>Language breakdown <small id="language-count">Waiting for data</small></summary>
@@ -1333,7 +1335,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 <p class="detail-note">These counts describe different actions and periods; they are not added together. GitHub search, contribution eligibility, token permissions, and organization access can limit coverage. Language bytes describe current repository content, including other authors.</p>
 <dl class="metric-definitions" id="activity-definitions"></dl></div></details></div></details>
 <details id="ai-usage-details"><summary>AI usage <small id="ai-usage-summary">Waiting for sources</small></summary>
-<div class="detail-body"><p class="detail-note">Codex and OpenRouter keep their own reporting periods. Tokens and requests are different units; provider totals are never added together. A dash means unavailable, not zero.</p>
+<div class="detail-body"><p class="detail-note">Codex, OpenRouter and Anthropic API keep their own reporting periods. Tokens and requests are different units; provider totals are never added together. A dash means unavailable, not zero.</p>
 <div class="table-wrap"><table class="usage-table"><thead><tr><th>Service</th><th>Metric</th><th>Value</th><th>Period</th></tr></thead><tbody id="ai-usage-body"></tbody></table></div>
 <div class="usage-scopes" id="ai-usage-scopes"></div></div></details>
 <details id="readme-details" open><summary>Add to your GitHub README <small>Copy and paste</small></summary>
@@ -1348,8 +1350,9 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 <section><h3>${sourceIcon(CLOCK_ICON)}WakaTime</h3><p>Coding time by language. Public statistics need no token; unpublished ranges need read-stats OAuth access. All time is the default.</p><a href="${docs}DEPLOYMENT.md#wakatime" target="_blank" rel="noopener noreferrer">Public and private statistics ↗</a></section>
 <section><h3>${sourceIcon(PROVIDER_ICONS.codex, 24)}Codex</h3><p>Lifetime account totals, peak usage, longest task and streaks. Read through your local Codex login, or sync aggregates to your Worker.</p><a href="${docs}AI-USAGE.md#codex" target="_blank" rel="noopener noreferrer">Enable Codex usage ↗</a></section>
 <section><h3>${sourceIcon(PROVIDER_ICONS.openrouter, 24)}OpenRouter</h3><p>Tokens, requests, averages and streaks across up to 367 completed UTC days. Requires a Management key, rather than a regular inference key.</p><a href="${docs}AI-USAGE.md#openrouter" target="_blank" rel="noopener noreferrer">Enable OpenRouter analytics ↗</a></section>
+<section><h3>${sourceIcon(PROVIDER_ICONS.anthropic, 24)}Anthropic API</h3><p>Organization API token usage, including input, output and prompt caching. Requires an Admin key; Claude Pro/Max subscription usage is not included.</p><a href="${docs}AI-USAGE.md#anthropic-api" target="_blank" rel="noopener noreferrer">Enable Anthropic API usage ↗</a></section>
 </div><p class="setup-note">Configure credentials on your server. The generated Markdown contains only the public card URL. <a href="${docs}DEPLOYMENT.md" target="_blank" rel="noopener noreferrer">Full deployment guide ↗</a></p></div></details>
-<section class="explain"><div><b>Four sources, separate measures</b><p>GitHub measures activity and repository code. WakaTime measures coding time. Codex and OpenRouter report their own AI usage. Periods and totals stay separate.</p></div>
+<section class="explain"><div><b>Five sources, separate measures</b><p>GitHub measures activity and repository code. WakaTime measures coding time. Codex, OpenRouter and Anthropic API report their own AI usage. Periods and totals stay separate.</p></div>
 <div><b>Freshness, made visible</b><p>Each source keeps its last successful snapshot. If an API is down, saved numbers remain visible with their own timestamp and a stale label.</p></div>
 <div><b>Made for your README</b><p>A single SVG works as a GitHub image. Native details sections reveal language and activity cards. The interactive controls live at /build; the homepage serves the image directly.</p></div></section>
 </main></div>
@@ -1364,7 +1367,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
         theme: 'transparent', header: 'true',
         view: 'overview', sort: 'code', limit: '10' };
     const query = new URLSearchParams(location.search);
-    const services = ['github', 'wakatime', 'codex', 'openrouter'];
+    const services = ${JSON.stringify(PRIMARY_SOURCES)};
     const accountServices = ['github', 'wakatime', 'codex'];
     const normalizeAccount = ${normalizeProfileAccount.toString()};
     let publicMode = accountServices.some(service => query.has(service));
@@ -1387,7 +1390,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
             $(service + '-account').value = accounts[service] || '';
         }
         $('account-help').textContent = editingPublic
-            ? 'Public IDs never use the server owner’s tokens. Codex usage needs account access; OpenRouter needs a server Management key.'
+            ? 'Public IDs never use the server owner’s tokens. Codex usage needs account access; OpenRouter and Anthropic API need server-managed keys.'
             : 'These accounts and all tokens are managed in server settings. No token is included in the image URL.';
         const codex = accounts.codex;
         $('codex-profile-link').hidden = !codex;
@@ -1606,7 +1609,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
             const tr = document.createElement('tr');
             const td = document.createElement('td');
             td.colSpan = 4;
-            td.textContent = 'Enable Codex or OpenRouter to add AI usage to your card.';
+            td.textContent = 'Enable Codex, OpenRouter or Anthropic API to add AI usage to your card.';
             tr.append(td); $('ai-usage-body').append(tr);
         }
     }
@@ -1642,7 +1645,6 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
             ['anthropic', 'Anthropic API'],
         ]) {
             const source = snapshot.aiUsage && snapshot.aiUsage[service];
-            if (!source && service === 'anthropic') continue;
             const panel = document.createElement('div');
             panel.className = 'source-state';
             panel.dataset.sourceProvider = service;
@@ -1670,7 +1672,8 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
             refreshed.id = service + '-time';
             refreshed.textContent = source ? date(source.lastSuccessAt)
                 : service === 'codex' ? 'Local Codex login or aggregate sync.'
-                : 'OpenRouter Management key required.';
+                : service === 'openrouter' ? 'OpenRouter Management key required.'
+                : 'Anthropic organization Admin key required.';
             const period = document.createElement('small');
             period.textContent = source && source.data ? usagePeriod(service, source.data) : '';
             const error = document.createElement('small');
@@ -1679,7 +1682,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
             const setup = document.createElement('a');
             setup.className = 'source-setup';
             setup.href = docs + 'AI-USAGE.md#'
-                + (service === 'anthropic' ? 'advanced-anthropic-api' : service);
+                + (service === 'anthropic' ? 'anthropic-api' : service);
             setup.target = '_blank';
             setup.rel = 'noopener noreferrer';
             setup.textContent = source ? 'Setup & metrics ↗' : 'Enable ' + label + ' ↗';
@@ -1690,9 +1693,8 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
         const enabled = selected.filter(service => service === 'github'
             ? snapshot.github.data : service === 'wakatime' ? snapshot.wakatime.data
             : snapshot.aiUsage && snapshot.aiUsage[service] && snapshot.aiUsage[service].data).length;
-        const extensions = snapshot.aiUsage && snapshot.aiUsage.anthropic ? ' · Anthropic extension' : '';
         $('enabled-sources').textContent = selected.length + ' sources selected · '
-            + enabled + ' with saved data' + extensions;
+            + enabled + ' with saved data';
         const github = snapshot.github.data;
         const waka = snapshot.wakatime.data;
         const accounts = snapshot.profile && snapshot.profile.accounts || {};

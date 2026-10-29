@@ -98,7 +98,7 @@ export interface StatsSnapshot {
     aiUsage?: Partial<Record<AIService, SourceSnapshot<AIUsageData>>>;
     range: Range;
     generatedAt: string;
-    selectedSources?: Array<'github' | 'wakatime' | 'codex' | 'openrouter'>;
+    selectedSources?: Array<'github' | 'wakatime' | 'codex' | 'openrouter' | 'anthropic'>;
     profile?: {
         mode: 'configured' | 'public';
         accounts: { github?: string; wakatime?: string; codex?: string };
@@ -119,7 +119,7 @@ export interface LanguageRow {
 export interface CardOptions {
     theme: 'dark' | 'light' | 'transparent';
     view: 'overview' | 'languages' | 'activity' | 'github' | 'wakatime'
-        | 'codex' | 'openrouter';
+        | 'codex' | 'openrouter' | 'anthropic';
     limit: number;
     sort: 'alternating' | 'time' | 'code' | 'name';
     /** Include the profile block; shown unless explicitly disabled. */

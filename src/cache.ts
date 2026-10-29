@@ -31,7 +31,7 @@ interface Policy {
 }
 
 type WaitUntil = (promise: Promise<unknown>) => void;
-type SourceName = 'github' | 'wakatime' | 'codex' | 'openrouter';
+type SourceName = 'github' | 'wakatime' | 'codex' | 'openrouter' | 'anthropic';
 
 export interface ReadOptions {
     sources?: SourceName[];

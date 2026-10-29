@@ -1,11 +1,11 @@
 # Implementation contract
 
 CodeStats supports a configured profile and username-selected public profiles for
-**GitHub, WakaTime, Codex and OpenRouter**, with Node.js and Cloudflare Worker adapters sharing collectors,
+**GitHub, WakaTime, Codex, OpenRouter and Anthropic API**, with Node.js and Cloudflare Worker adapters sharing collectors,
 cache, routes and SVG rendering. Services retain their own metric definitions
 and reporting periods; their counts are not combined into a cross-provider total.
 
-## Four primary sources
+## Five built-in sources
 
 - **GitHub:** `github.ts` reads native GraphQL repository counts, PR/issue
   aggregates, owned stars, forks and current language bytes. Repository and
@@ -53,11 +53,21 @@ and reporting periods; their counts are not combined into a cross-provider total
   The collector defaults to 367 completed UTC days and accepts shorter explicit
   intervals. Its five outputs are total tokens, average tokens/day,
   average tokens/week, total prompts (API requests), and longest streak.
+- **Anthropic API:** `ai-usage.ts` reads organization usage from
+  `/v1/organizations/usage_report/messages` using `ANTHROPIC_ADMIN_KEY`.
+  The key auto-enables the source; no plugin or separate package is required.
+  Bounded, ungrouped daily pages must complete before a total is saved. The
+  collector sums uncached input, cache-read input, 5-minute and 1-hour
+  cache-creation input, and output tokens. Its default window is the last
+  30 completed UTC days, with `ANTHROPIC_USAGE_SINCE` as an optional start.
+  This is organization API usage, not Claude Pro/Max subscription usage.
+  Unsupported request, streak and lifetime fields are not invented.
 
-Anthropic organization API usage remains an optional advanced extra. It is
-configured separately and is not advertised as a fifth default source or as
-personal Claude subscription usage. Codex and OpenRouter usage rows are omitted
-from public SVG/JSON when not enabled; the builder still explains their setup.
+All five integrations are part of both runtimes. Usage sources auto-enable
+from their connection settings; unconfigured usage rows and refresh times are
+omitted from the default configured card. Explicitly selected unavailable
+sources retain clear missing-data/setup guidance. The builder always includes
+the five source controls and status cards.
 
 ## Data and cache boundaries
 
@@ -86,9 +96,9 @@ normal visitor reads continue using the configured freshness policy.
 Collector upgrades retain supported old cache lineages
 while marking old payloads stale until replacement succeeds.
 
-Four source names do not imply four HTTP requests, one shared timestamp or full
+Five source names do not imply five HTTP requests, one shared timestamp or full
 lifetime coverage. Freshness describes observation age. Codex may describe
-account lifetime activity; OpenRouter describes its bounded analytics interval;
+account lifetime activity; OpenRouter and Anthropic describe their own bounded intervals;
 GitHub byte inventories and WakaTime time shares have separate denominators.
 Provider credentials, private repo identities, raw upstream errors, project/file
 names and chat content are absent from published snapshots.
@@ -97,10 +107,10 @@ names and chat content are absent from published snapshots.
 
 `render.ts` and `app.ts` serve transparent SVG at `/` and `/card.svg`, the HTML
 builder at `/build` and `/build/`, and aggregate JSON at `/api/stats`. The builder
-has four primary provider cards with setup, scope and freshness guidance. GitHub
+has five built-in provider cards with setup, scope and freshness guidance. GitHub
 repository/activity states appear inside one GitHub provider. Unconfigured usage
-services say **Not enabled** in the builder; they do not become invented SVG
-rows. Anthropic appears only when configured. Credentials remain server-side;
+services say **Not enabled** in the builder; their default SVG rows stay hidden.
+Explicitly selected missing sources show unavailable fields, not zeros. Credentials remain server-side;
 builder controls accept public names/IDs and source masks, never keys.
 
 `profile.ts` parses `github`, `wakatime`, `codex` and `sources`. Any account
@@ -108,7 +118,7 @@ selector creates strict public mode, including an ID matching the owner.
 Only explicitly supplied public accounts remain. `publicSettings` is a whitelist
 that strips all owner credentials, Codex imports and OpenRouter/Anthropic access.
 No account selector means the configured account subset. `sources` accepts every
-nonempty subset of the four primary providers; selection cannot authorize data.
+nonempty subset of the five built-in providers (31 combinations); selection cannot authorize data.
 Malformed/duplicate IDs, masks and secret-bearing query parameters are rejected.
 Public profile cache namespaces are distinct from configured/private lineages;
 changing a view or source mask reuses only the correct account observations.
@@ -133,8 +143,9 @@ Repo union counts appear under names, bytes/time under their respective bars.
 
 The card uses three text sizes, a GitHub avatar with a rank-progress rim, and
 shared outer edges. Rank remains top-right with or without the profile header;
-the no-header rank/overview gap is 20px. Codex precedes OpenRouter in usage rows
-and refresh labels. Each has five native metrics. Refresh labels can wrap to fit
+the no-header rank/overview gap is 20px. Codex precedes OpenRouter, then Anthropic
+in usage rows and refresh labels. The first two have five native metrics;
+Anthropic has its verified API token total. Refresh labels can wrap to fit
 the configured services; linked project credit is right-aligned.
 
 ## Runtimes and validation
@@ -159,7 +170,7 @@ changes; bundle success alone is insufficient.
 Language logos, provider brand paths and UI glyphs are bundled locally with their
 notices in `third_party`; no external fonts or nested SVG image fetches are needed.
 
-The four focused views are `github`, `wakatime`, `codex` and `openrouter`.
+The five focused views are `github`, `wakatime`, `codex`, `openrouter` and `anthropic`.
 `overview` stays the default; legacy `languages` and `activity` remain supported.
 Source-specific cards preserve unknown/zero distinctions and do not manufacture
 language bytes or account usage when an anonymous API cannot supply them.

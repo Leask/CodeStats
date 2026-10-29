@@ -97,6 +97,49 @@ afterEach(async () => {
 });
 
 describe('isolated multi-profile Node runtime', () => {
+    it('collects and caches Anthropic as a built-in source without leaking owner usage to public profiles', async () => {
+        const requests: URL[] = [];
+        const fetcher = (async (input, init) => {
+            const url = new URL(String(input));
+            requests.push(url);
+            expect(url.origin).toBe('https://api.anthropic.com');
+            expect(url.pathname).toBe('/v1/organizations/usage_report/messages');
+            expect(new Headers(init?.headers).get('x-api-key')).toBe('anthropic-owner-fixture');
+            const start = url.searchParams.get('starting_at')!;
+            return Response.json({ data: [{ starting_at: start,
+                ending_at: new Date(Date.parse(start) + 86_400_000).toISOString(),
+                results: [{ uncached_input_tokens: 10, cache_read_input_tokens: 20,
+                    output_tokens: 30, cache_creation: {
+                        ephemeral_5m_input_tokens: 40, ephemeral_1h_input_tokens: 50,
+                    } }],
+            }], has_more: false, next_page: null });
+        }) as Fetcher;
+        const node = service(fetcher, { settings: {
+            GITHUB_USERNAME: '', WAKATIME_USERNAME: '',
+            FRESH_SECONDS: '21600', RETRY_SECONDS: '900',
+            ANTHROPIC_ADMIN_KEY: 'anthropic-owner-fixture',
+        } });
+        const origin = await node.listen(0);
+        const configured = await stats(origin);
+        expect(configured.selectedSources).toEqual(['anthropic']);
+        expect(configured.aiUsage?.anthropic).toMatchObject({ status: 'fresh',
+            data: { totalTokens: 150, period: 'Last 30 days' } });
+        const observed = configured.aiUsage!.anthropic!.lastSuccessAt;
+        expect((await stats(origin, '?sources=anthropic')).aiUsage!.anthropic!.lastSuccessAt)
+            .toBe(observed);
+        expect(requests).toHaveLength(1);
+        const svg = await (await fetch(origin + '/?view=anthropic')).text();
+        expect(svg).toContain('data-source-section="anthropic"');
+        expect(svg).toContain('Anthropic API:');
+        expect(svg).not.toContain('anthropic-owner-fixture');
+        const publicData = await stats(origin, '?github=visitor&sources=anthropic');
+        expect(publicData.profile?.mode).toBe('public');
+        expect(publicData.aiUsage?.anthropic).toMatchObject({ data: null,
+            status: 'unavailable', lastSuccessAt: null });
+        expect(JSON.stringify(publicData)).not.toContain('anthropic-owner-fixture');
+        expect(requests).toHaveLength(1);
+    });
+
     it('uses one SQLite handle with independent namespace views', async () => {
         const store = new SqliteStorage(directory(), 'legacy');
         const alice = store.scoped('alice');

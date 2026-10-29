@@ -81,8 +81,7 @@ async function inspectCardLayout(page, expectedServices, normalFooter = false) {
         const positions = prefixOrder.map(prefix => refreshText.indexOf(prefix));
         const providerGroups = [...root.querySelectorAll('[data-token-service]')];
         const providers = providerGroups.map(group => group.dataset.tokenService);
-        const icons = providerGroups.filter(group => ['codex', 'openrouter']
-            .includes(group.dataset.tokenService)).map(group => {
+        const icons = providerGroups.map(group => {
             const service = group.dataset.tokenService;
             const icon = group.querySelector('[data-provider-icon="' + service + '"]');
             return { valid: !!icon && icon.tagName.toLowerCase() === 'svg'
@@ -188,6 +187,7 @@ async function syntheticLayoutReview(snapshot) {
         for (const entry of cases) {
             const data = structuredClone(snapshot);
             data.aiUsage = {};
+            data.selectedSources = ['github', 'wakatime', ...entry.services];
             if (entry.kind === 'long-profile') {
                 data.github.data.username = 'W'.repeat(38);
                 data.github.data.name = 'A very long display name that must leave room for the ranking badge';
@@ -268,22 +268,24 @@ try {
     checks.usageSourceOrder = JSON.stringify(await page.locator('[data-usage-source]')
         .evaluateAll(nodes => nodes.map(node => node.dataset.usageSource)))
         === JSON.stringify(configuredUsage);
-    checks.fourPrimaryProviderCards = JSON.stringify(await page.locator('[data-source-provider]')
-        .evaluateAll(nodes => nodes.map(node => node.dataset.sourceProvider)
-            .filter(service => service !== 'anthropic')))
-        === JSON.stringify(['github', 'wakatime', 'codex', 'openrouter']);
+    checks.fivePrimaryProviderCards = JSON.stringify(await page.locator('[data-source-provider]')
+        .evaluateAll(nodes => nodes.map(node => node.dataset.sourceProvider)))
+        === JSON.stringify(['github', 'wakatime', 'codex', 'openrouter', 'anthropic']);
     checks.groupedGitHubDatasets = await page.locator(
         '[data-source-provider="github"] #github-status',
     ).count() === 1 && await page.locator(
         '[data-source-provider="github"] #githubActivity-status',
     ).count() === 1;
     checks.optionalSourceSetup = true;
-    for (const service of ['codex', 'openrouter']) {
+    for (const service of ['codex', 'openrouter', 'anthropic']) {
         const panel = page.locator('[data-source-provider="' + service + '"]');
         const enabled = !!expected.aiUsage?.[service];
+        const anchor = service === 'anthropic' ? 'anthropic-api' : service;
+        const missingState = expected.selectedSources?.includes(service)
+            ? 'Not enabled' : 'Not selected';
         checks.optionalSourceSetup &&= (await panel.locator('.source-setup')
-            .getAttribute('href')).endsWith('/docs/AI-USAGE.md#' + service)
-            && (enabled || await panel.locator('.badge').textContent() === 'Not enabled');
+            .getAttribute('href')).endsWith('/docs/AI-USAGE.md#' + anchor)
+            && (enabled || await panel.locator('.badge').textContent() === missingState);
     }
     checks.aiUsageDetails = await page.locator('[data-usage-detail]').count()
         === configuredUsage.reduce((total, service) => total + (service === 'anthropic' ? 1 : 5), 0)

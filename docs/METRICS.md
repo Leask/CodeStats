@@ -2,7 +2,7 @@
 
 [Back to CodeStats](../README.md) · [Reference comparison](github-collection-plan.md)
 
-## Four sources and their scopes
+## Five sources and their scopes
 
 | Source | Main measurements | Reporting period |
 | --- | --- | --- |
@@ -10,13 +10,14 @@
 | WakaTime | Coding seconds and time by language | Selected all-time, 7-day or 30-day range |
 | Codex | Total/peak tokens, longest task, longest/current streak | Official account/workspace lifetime summary as of its observation time |
 | OpenRouter | Total tokens, average tokens/day and tokens/week, request count and longest streak | Last 367 completed UTC days by default, or a shorter explicit interval |
+| Anthropic API | Organization API total tokens, including input, output and cache use | Last 30 completed UTC days by default, or the configured UTC start date |
 
 Public username/ID requests use isolated anonymous collection, even when an ID
 matches the configured owner. `sources` selects a provider subset; the focused
-`github`, `wakatime`, `codex` and `openrouter` views retain those scopes and
+`github`, `wakatime`, `codex`, `openrouter` and `anthropic` views retain those scopes and
 periods. Missing fields are unknown (`—`); a verified zero remains zero.
 
-These are four providers, not four interchangeable counters. GitHub has two
+These are five providers with different accounting rules. GitHub has two
 independently cached datasets—repositories/profile and personal activity—within
 one source. A fresh repository snapshot does not guarantee fresh activity data.
 Check both dataset statuses in the builder when assessing GitHub coverage.
@@ -27,10 +28,17 @@ Coding hours comes from WakaTime; the other seven come from GitHub. The
 **Commits** label represents GitHub search-indexed authored commits, not a scan
 of every branch or an additions/deletions count.
 
-Codex and OpenRouter have separate rows below the language table when enabled.
+Codex, OpenRouter and Anthropic API have separate rows below the language table when enabled.
 Their totals are not combined with each other or with coding time. Selecting a
-WakaTime range never changes GitHub, Codex or OpenRouter reporting windows.
+WakaTime range never changes GitHub or the usage providers' reporting windows.
 [Usage definitions and setup](AI-USAGE.md).
+
+Anthropic's **Total tokens** sums uncached input, cache-read input, both 5-minute
+and 1-hour cache-creation input, and output tokens from the organization Usage
+API. It is not a Claude Pro/Max subscription total or a count of requests. No
+unsupported streak or lifetime total is inferred. This built-in source requires
+an organization Admin key in server settings; public-ID requests never inherit
+that key or the owner's saved organization usage.
 
 ## GitHub and WakaTime language data
 
@@ -161,7 +169,7 @@ fallback labels; an unknown all-time span uses `Recent activity` in the tooltip.
 
 ## Refresh times and source state
 
-The footer lists GitHub, WakaTime, Codex and OpenRouter in that order, omitting
+The footer lists GitHub, WakaTime, Codex, OpenRouter and Anthropic API in that order, omitting
 usage services that are not enabled. Each age refers to that source's last
 successful observation. Codex imports retain their original observation time;
 rendering a card does not refresh them. Source windows remain independent.
@@ -172,8 +180,8 @@ rather than shrinking the text. A configured source without an observation says
 `not refreshed`. The right-hand GitHub mark and
 `Power by github.com/Leask/CodeStats` link to this repository.
 
-The builder keeps four primary provider cards visible, including `Not enabled`
-for unconfigured Codex/OpenRouter integrations. GitHub's repository and activity
+The builder keeps five built-in provider cards visible, including `Not enabled`
+for unconfigured Codex/OpenRouter/Anthropic integrations. GitHub's repository and activity
 statuses appear within the same provider card. `fresh` means a current-format
 snapshot is within the configured freshness window, not that every possible
 historical event was collected. `stale` means saved data is due for refresh or

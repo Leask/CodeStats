@@ -162,6 +162,9 @@ export function createPublicProfileCache(
             openrouter: async () => { throw new UpstreamError(
                 'OpenRouter has no anonymous username usage API. Use a configured account with a Management key.',
             ); },
+            anthropic: async () => { throw new UpstreamError(
+                'Anthropic API usage requires a configured organization Admin key; public IDs do not authorize access.',
+            ); },
         },
     }, {
         freshSeconds: seconds(settings.FRESH_SECONDS, 21600, 60),
@@ -170,6 +173,7 @@ export function createPublicProfileCache(
         githubActivityKey: 'github:activity:public-rest:v1',
         githubCollectionVersion: 7, githubActivityCollectionVersion: 3,
         aiUsageKeys: { codex: 'usage:codex:public-unavailable:v1',
-            openrouter: 'usage:openrouter:public-unavailable:v1' },
+            openrouter: 'usage:openrouter:public-unavailable:v1',
+            anthropic: 'usage:anthropic:public-unavailable:v1' },
     });
 }

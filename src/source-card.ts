@@ -5,8 +5,11 @@ import type {
 import { CLOCK_ICON, GITHUB_ICON, METRIC_ICONS } from './ui-icons';
 import { PROVIDER_ICONS } from './provider-icons';
 import { LANGUAGE_ICONS, languageIcon } from './language-icons';
+import { PRIMARY_SOURCES } from './profile';
+import type { PrimarySource } from './profile';
 
-type Provider = 'github' | 'wakatime' | 'codex' | 'openrouter';
+type Provider = PrimarySource;
+type UsageProvider = Exclude<Provider, 'github' | 'wakatime'>;
 type DisplaySnapshot = StatsSnapshot & {
     selectedSources?: Provider[];
     profile?: {
@@ -28,9 +31,10 @@ interface Metric {
     icon?: string;
 }
 
-const PROVIDERS: Provider[] = ['github', 'wakatime', 'codex', 'openrouter'];
+const PROVIDERS: readonly Provider[] = PRIMARY_SOURCES;
 const LABELS: Record<Provider, string> = {
     github: 'GitHub', wakatime: 'WakaTime', codex: 'Codex', openrouter: 'OpenRouter',
+    anthropic: 'Anthropic API',
 };
 const LIGHT = {
     bg: '#ffffff', fg: '#17222e', muted: '#667588', line: '#e3e8ee',
@@ -104,7 +108,7 @@ function period(provider: Provider, data: AIUsageData | null): string {
         ? 'Lifetime' : data?.period ?? 'Unavailable';
 }
 
-function usageMetrics(provider: 'codex' | 'openrouter', data: AIUsageData | null): Metric[] {
+function usageMetrics(provider: UsageProvider, data: AIUsageData | null): Metric[] {
     const summary = data?.summary;
     const tokens = (key: string, label: string, value: unknown): Metric => ({
         key, label, value: count(value, true),
@@ -115,6 +119,7 @@ function usageMetrics(provider: 'codex' | 'openrouter', data: AIUsageData | null
         key, label, value: valid(value) ? count(value) + ' days' : '—',
     });
     const total = tokens('totalTokens', 'Total tokens', data?.totalTokens);
+    if (provider === 'anthropic') return [total];
     return provider === 'codex' ? [
         total, tokens('peakDailyTokens', 'Peak tokens', summary?.peakDailyTokens),
         { key: 'longestRunningTurnSec', label: 'Longest task',
@@ -144,7 +149,8 @@ export function renderSourceCard(
     const requested = PROVIDERS.find(provider => provider === view);
     const selected = requested ? [requested] : input.selectedSources ?? [
         'github', 'wakatime',
-        ...(['codex', 'openrouter'] as const).filter(provider => snapshot.aiUsage?.[provider]),
+        ...(['codex', 'openrouter', 'anthropic'] as const)
+            .filter(provider => snapshot.aiUsage?.[provider]),
     ];
     const active = PROVIDERS.filter(provider => selected.includes(provider));
     const publicMode = input.profile?.mode === 'public';
@@ -179,14 +185,16 @@ export function renderSourceCard(
             + `fill="${palette.muted}" fill-rule="evenodd" aria-hidden="true">`
             + `<path d="${path}"/></svg>`;
     };
-    const usageSource = (provider: 'codex' | 'openrouter'): SourceSnapshot<AIUsageData> => {
+    const usageSource = (provider: UsageProvider): SourceSnapshot<AIUsageData> => {
         const source = snapshot.aiUsage?.[provider];
         if (publicMode || !source) return {
             data: null, lastSuccessAt: null, lastAttemptAt: null, retryAt: null,
             status: 'unavailable', lastError: publicMode
                 ? provider === 'codex'
                     ? 'Public Codex profiles require sign-in to display usage statistics.'
-                    : 'OpenRouter usage requires an account-specific Management key.'
+                    : provider === 'openrouter'
+                    ? 'OpenRouter usage requires an account-specific Management key.'
+                    : 'Anthropic API usage requires an organization Admin key.'
                 : `${LABELS[provider]} usage is not enabled for this profile.`,
         };
         return source;
@@ -346,14 +354,16 @@ export function renderSourceCard(
         body += '</g>';
         divider();
     }
-    for (const provider of active.filter((value): value is 'codex' | 'openrouter' =>
-        value === 'codex' || value === 'openrouter')) {
+    for (const provider of active.filter((value): value is UsageProvider =>
+        value === 'codex' || value === 'openrouter' || value === 'anthropic')) {
         const source = usageSource(provider);
         body += `<g data-source-section="${provider}" data-usage-status="${source.status}">`
             + sectionTitle(provider, period(provider, source.data)
                 + (source.status === 'stale' ? ' · saved data' : ''));
-        if (source.data) grid(usageMetrics(provider, source.data), 5, 8);
-        else message(source.lastError || 'No successful usage observation yet.');
+        if (source.data) {
+            const metrics = usageMetrics(provider, source.data);
+            grid(metrics, metrics.length, 8);
+        } else message(source.lastError || 'No successful usage observation yet.');
         const id = account(provider);
         if (provider === 'codex' && /^[A-Za-z0-9._-]{1,64}$/.test(id)
             && /[A-Za-z0-9]/.test(id)) {
@@ -368,7 +378,7 @@ export function renderSourceCard(
     if (!active.length) {
         body += text(32, cursor + 11, 'Select a source to build your card.', 13);
         body += text(32, cursor + 34,
-            'Choose GitHub, WakaTime, Codex or OpenRouter in /build.', 11, palette.muted);
+            'Choose GitHub, WakaTime, Codex, OpenRouter or Anthropic API in /build.', 11, palette.muted);
         cursor += 65;
     }
     const refresh = active.map(provider => {

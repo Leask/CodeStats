@@ -1,7 +1,7 @@
 import type { Settings } from './types';
 
 export const PRIMARY_SOURCES = [
-    'github', 'wakatime', 'codex', 'openrouter',
+    'github', 'wakatime', 'codex', 'openrouter', 'anthropic',
 ] as const;
 
 export type PrimarySource = typeof PRIMARY_SOURCES[number];
@@ -95,7 +95,7 @@ export function resolveProfile(url: URL, env: Settings): ProfileSelection {
         }
     }
     const inferred = mode === 'public'
-        ? PRIMARY_SOURCES.filter(service => service !== 'openrouter'
+        ? PRIMARY_SOURCES.filter(service => service !== 'openrouter' && service !== 'anthropic'
             && accounts[service] !== undefined)
         : PRIMARY_SOURCES.filter(service => service === 'github'
             ? !!accounts.github || !!env.GITHUB_TOKEN?.trim()
@@ -103,7 +103,8 @@ export function resolveProfile(url: URL, env: Settings): ProfileSelection {
             ? !!accounts.wakatime || !!env.WAKATIME_TOKEN?.trim()
             : service === 'codex'
             ? codexUsageEnabled(env)
-            : !!env.OPENROUTER_API_KEY?.trim());
+            : service === 'openrouter' ? !!env.OPENROUTER_API_KEY?.trim()
+            : !!env.ANTHROPIC_ADMIN_KEY?.trim());
     return {
         mode, accounts,
         sources: parameters.has('sources')

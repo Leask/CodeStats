@@ -2,10 +2,10 @@
 
 [Back to CodeStats](../README.md) · [README embedding](EMBEDDING.md) · [Usage details](AI-USAGE.md)
 
-One deployment combines **GitHub, WakaTime, Codex and OpenRouter** for its
+One deployment combines **GitHub, WakaTime, Codex, OpenRouter and Anthropic API** for its
 configured profile and optional username-selected public profiles.
 Node.js and Cloudflare Workers share collectors, rendering,
-routes and cache policy. Enable the services you use; Codex and OpenRouter are
+routes and cache policy. Enable the services you use; Codex, OpenRouter and Anthropic API are
 optional, and missing usage data is never replaced with a fabricated zero.
 Public IDs use `github`, `wakatime` and `codex` parameters, not a generic
 `username`. Any explicit ID selects isolated anonymous mode; omitted owner
@@ -19,12 +19,13 @@ accounts and credentials are not inherited, even when the ID matches the owner.
 | WakaTime | Public username/range; optional owner OAuth fallback or token-only identity | Direct API collection | Direct API collection |
 | Codex | Optional bare public ID; account login/sync required for usage | Read enabled local account aggregates | Receive enabled aggregate-only imports |
 | OpenRouter | Management key | Direct account analytics | Direct account analytics |
+| Anthropic API | Organization Admin key | Direct organization usage API | Direct organization usage API |
 
 GitHub has separate repository and personal-activity caches. These are two
 datasets from **one** service, not extra sources. Each WakaTime range has its
-own cache; the selected range does not change Codex or OpenRouter's reporting
-window. Anthropic organization API usage is an additional advanced integration,
-not one of the four primary services. See [usage setup](AI-USAGE.md).
+own cache; the selected range does not change any usage provider's reporting
+window. All five integrations are included in the application; no plugin or
+separate package is required. See [usage setup](AI-USAGE.md).
 
 ## Credentials
 
@@ -158,6 +159,27 @@ rejects intervals longer than 367 days rather than silently truncating them.
 The card's Tokens/day and Tokens/week are interval averages, including inactive
 days. Total prompts counts API requests. See [metric definitions](AI-USAGE.md).
 
+### Anthropic API
+
+Set `ANTHROPIC_ADMIN_KEY` to an **organization Admin key**. Collection enables
+automatically on both runtimes; there is no provider plugin or separate enable
+flag. An ordinary model-inference key does not grant this organization-report
+access. CodeStats makes read-only requests to
+`/v1/organizations/usage_report/messages` and keeps the key on the server.
+
+This source measures organization-wide **Claude API** token usage, not Claude
+Pro/Max subscription activity. Its default is the **last 30 completed UTC days**;
+`ANTHROPIC_USAGE_SINCE=YYYY-MM-DD` optionally sets the start. It displays the sum
+of uncached input, cache-read input, cache-creation input and output, with its
+own reporting period, cache and refresh time. Other providers' ranges and totals
+stay separate. See [Anthropic setup and metric scope](AI-USAGE.md#anthropic-api).
+
+The builder includes an Anthropic source checkbox, status panel and focused
+view. `?sources=anthropic` selects only the configured organization;
+`?view=anthropic` changes presentation to its focused card. Neither option
+grants API access. Any public account ID instead selects isolated public mode
+and cannot read the deployment owner's Anthropic credentials or saved usage.
+
 ## Node.js
 
 Use Node.js **26 or newer**, npm and Git. Local Node installations can follow
@@ -168,7 +190,7 @@ git clone https://github.com/Leask/CodeStats.git
 cd CodeStats
 npm ci
 cp .env.example .env
-# Edit usernames and credentials; enable Codex/OpenRouter only if needed.
+# Edit usernames and credentials; configure only the sources you need.
 chmod 600 .env
 npm start
 ```
@@ -234,7 +256,7 @@ npm run dev:worker
 ```
 
 Use `.dev.vars` for **secrets only**: GitHub token, optional WakaTime OAuth token,
-OpenRouter Management key, and optional Codex sync secret. Usernames, enable
+OpenRouter Management key, Anthropic Admin key, and optional Codex sync secret. Usernames, enable
 flags and reporting dates belong in Wrangler `vars`, not this upload file.
 Neither sample contains real credentials.
 
@@ -264,6 +286,7 @@ npx wrangler secret put GITHUB_TOKEN
 # Only for the services you enabled:
 npx wrangler secret put WAKATIME_TOKEN
 npx wrangler secret put OPENROUTER_API_KEY
+npx wrangler secret put ANTHROPIC_ADMIN_KEY
 # Optional manual Codex setup; sync:codex normally creates/installs its own key:
 npx wrangler secret put CODEX_SYNC_TOKEN
 ```
@@ -285,8 +308,8 @@ Use the Node version in `.nvmrc`; leave the repository's bundle settings intact.
 The CI command copies only supported CodeStats settings from the build
 environment into the deployed Worker. Configure provider credentials under
 **Build settings** as Secrets: `GITHUB_TOKEN`, `WAKATIME_TOKEN`,
-`OPENROUTER_API_KEY`, and optionally a manually managed `CODEX_SYNC_TOKEN` or
-`ANTHROPIC_ADMIN_KEY`. Public settings such as `CODEX_USERNAME` and
+`OPENROUTER_API_KEY`, `ANTHROPIC_ADMIN_KEY`, and optionally a manually managed
+`CODEX_SYNC_TOKEN`. Public settings such as `CODEX_USERNAME` and
 `WAKATIME_USERNAME` are passed as runtime Variables. Cloudflare build-auth tokens
 and unrelated environment values are never forwarded as Worker bindings.
 
@@ -365,18 +388,18 @@ unless a row says otherwise.
 | `CODEX_SYNC_TOKEN` | Generated/installed by Worker sync; optional manual override of at least 32 characters | Auto-enable and authorize `/api/usage/codex` imports; explicit shared value required for Node/HTTP imports |
 | `OPENROUTER_API_KEY` | Optional Management key | Enable account analytics |
 | `OPENROUTER_USAGE_SINCE` | Last 367 completed UTC days | Optional shorter `YYYY-MM-DD` start |
+| `ANTHROPIC_ADMIN_KEY` | Optional organization Admin key | Auto-enable organization API usage; not a Claude Pro/Max subscription |
+| `ANTHROPIC_USAGE_SINCE` | Last 30 completed UTC days | Optional organization-usage `YYYY-MM-DD` UTC start date |
 | `FRESH_SECONDS` | `21600` | Six-hour freshness interval; minimum 60 seconds |
 | `RETRY_SECONDS` | `900` | Fifteen-minute retry cooldown; minimum 60 seconds |
 | `AUTO_REFRESH_SECONDS` | `0` or `off` | Node-only configured-profile refresh; integer 60–2147483 seconds when enabled |
 | `HOST` | `127.0.0.1` | Node listener only |
 | `PORT` | `8791` | Node port only |
 | `CODESTATS_DATA_DIR` | `.data` | Persistent Node cache directory only |
-| `ANTHROPIC_ADMIN_KEY` | Optional advanced integration | Organization API usage; not a Claude Pro/Max subscription |
-| `ANTHROPIC_USAGE_SINCE` | Last 30 completed UTC days | Optional organization-usage UTC start date |
 
 ## Cache and verification
 
-Four services retain independent observations. GitHub repository and activity
+Five services retain independent observations. GitHub repository and activity
 data are cached separately, WakaTime has one entry per range, and each enabled
 usage provider has its own reporting window and last-success time.
 
@@ -401,7 +424,7 @@ and persistent-storage monitoring to bound traffic and growth. The collector's
 request/time/body limits do not impose a global limit on the number of visitors.
 
 Token-only WakaTime resolution changes only its own WakaTime cache namespace.
-It does not move GitHub/OpenRouter observations or Codex aggregate imports into a
+It does not move GitHub/OpenRouter/Anthropic observations or Codex aggregate imports into a
 different store. Unresolved OAuth identities cannot read another owner's WakaTime
 cache, and failures leave the other configured sources intact. Node bounds its
 in-memory public-profile cache; evicting an idle instance does not delete its
@@ -411,7 +434,7 @@ SVG responses also have five-minute HTTP caching; GitHub's image proxy can add
 its own delay. The footer and builder show provider refresh ages. Use the builder's
 GitHub details and `/api/stats` to inspect the separately cached repository and
 activity observations. Fresh means a recent successful observation, not complete
-lifetime coverage or synchronized reporting periods across all four providers.
+lifetime coverage or synchronized reporting periods across all five providers.
 
 After deployment:
 
@@ -422,8 +445,9 @@ After deployment:
 5. Copy the builder's linked Markdown and verify the actual rendered README.
 
 `/health` establishes HTTP runtime readiness, not successful authentication to all
-four providers. Its configuration booleans are `githubTokenConfigured`,
-`wakatimeTokenConfigured`, `codexUsageEnabled` and `openrouterTokenConfigured`.
+five providers. Its configuration booleans are `githubTokenConfigured`,
+`wakatimeTokenConfigured`, `codexUsageEnabled`, `openrouterTokenConfigured`
+and `anthropicTokenConfigured`.
 They describe credential presence or enable intent, not a verified Codex login,
 successful sync or upstream access. They contain no tokens or hashes; the source
 snapshots are the collection evidence.
@@ -434,18 +458,19 @@ Last-good data still requires the application and its storage to be reachable.
 | Symptom | Check |
 | --- | --- |
 | Another profile appears | Replace sample usernames; Worker IDs belong in `wrangler.jsonc` |
-| Codex/OpenRouter absent from the SVG | Their builder cards say Not enabled until configured; only enabled usage services become SVG rows |
+| Codex/OpenRouter/Anthropic absent from the default SVG | Their builder cards say Not enabled until configured; only enabled usage services become default SVG rows |
 | GitHub token missing after successful deploy | Add a runtime Secret under the Worker's Settings, not only Build settings |
 | Public GitHub lacks bytes, rank or calendar totals | Expected anonymous REST scope; use owner name+token in configured mode for full data |
 | GitHub scope/identity error | Token owner, classic/OAuth scopes, SSO authorization and organization policies |
 | WakaTime unavailable or calculating | Exact published range, owner-match and OAuth `email` plus read-stats permissions; no period substitution |
-| Public ID has no Codex/OpenRouter usage | Expected: Codex usage requires account access; OpenRouter has no anonymous username usage API |
+| Public ID has no Codex/OpenRouter/Anthropic usage | Expected: Codex requires account access; OpenRouter and Anthropic have no anonymous username usage API and never inherit owner data |
 | Codex unavailable on Node | CLI on the service user's `PATH`, supported account login and usage endpoint |
 | Codex unavailable/stale on Worker | Current version deployed, local Codex/Wrangler login, correct Worker in `wrangler.jsonc`, one successful sync; remove an explicit disable override |
 | Automatic Codex key install fails | Keep its private saved key, verify Wrangler login/configured Worker, then retry the same sync command |
 | Codex import rejected | Newer observation, HTTPS origin, matching separate secret of at least 32 characters |
 | OpenRouter inference works but usage fails | Use a Management key; ordinary inference credentials are insufficient |
 | OpenRouter differs from website lifetime total | The card uses its labeled completed-day analytics interval, not the private profile page |
+| Anthropic API usage unavailable | Configure an organization Admin key, check organization access and the requested UTC interval; a normal inference key or Claude Pro/Max subscription is insufficient |
 | README image broken | Public HTTPS endpoint, no authentication gate, correct domain, no key in URL |
 | Builder says `__name is not defined` | Restore `keep_names: false` / `minify: false`, rebuild and test the generated Worker |
 | Old values remain | Original success time, source errors, retry cooldown and image caching |

@@ -9,12 +9,12 @@ belong only in server configuration. The same snippets work on Node and Workers.
 ## Use the snippet generator
 
 1. Open `/build` or `/build/` on your local service or deployed origin.
-2. Review the four provider cards: GitHub, WakaTime, Codex and OpenRouter.
+2. Review the five provider cards: GitHub, WakaTime, Codex, OpenRouter and Anthropic API.
    `Not enabled` usage sources link to their server-side setup instructions.
 3. Choose **Account mode**: configured accounts, or public usernames/IDs. In
    public mode enter bare GitHub/WakaTime usernames and/or a Codex ID. Use the
-   four source checkboxes to choose the subset, then the range and appearance.
-   **View** offers Overview, GitHub, WakaTime, Codex and OpenRouter, plus the
+   five source checkboxes to choose the subset, then the range and appearance.
+   **View** offers Overview, GitHub, WakaTime, Codex, OpenRouter and Anthropic API, plus the
    legacy language/activity cards.
 4. Review the preview and language, GitHub activity and AI usage details.
 5. In the already-open **Add to your GitHub README** section, set
@@ -29,7 +29,7 @@ The generator is visible and usable even when the statistics API is unavailable.
 The builder accepts names/IDs, never credentials. Its source selection follows
 the same public/configured distinction as the generated URLs below. Full private
 GitHub and usage integrations need [server configuration](DEPLOYMENT.md) and
-the [Codex/OpenRouter setup](AI-USAGE.md).
+the [Codex/OpenRouter/Anthropic setup](AI-USAGE.md).
 
 For a profile README, create a public repository whose name is exactly your
 GitHub username, then put the snippet in its root `README.md`. It also works in
@@ -43,8 +43,9 @@ ordinary repository READMEs. [GitHub profile README documentation](https://docs.
 
 The same image includes your enabled sources. GitHub and WakaTime supply the
 overview/language comparison; Codex and OpenRouter add their five-metric usage
-rows when configured. You do not need four separate image URLs. Usage sources
-that are not enabled stay out of the SVG and its refresh footer; the builder
+rows, and Anthropic API adds its verified organization token total when configured.
+You do not need separate image URLs. Usage sources
+that are not enabled stay out of the default SVG and its refresh footer; the builder
 still shows their setup cards.
 
 Use `theme=light` or `theme=dark` for a fixed background. Transparent SVGs use a
@@ -64,7 +65,7 @@ When rank data is available, its trophy, username and percentile always appear
 at the upper right, including when `header=false`. Hiding the profile header
 keeps a compact rank lane above the main numbers. The footer contains refresh
 times on the left and the CodeStats project link on the right. Enabled sources
-appear in GitHub, WakaTime, Codex, OpenRouter order. Long refresh text wraps when
+appear in GitHub, WakaTime, Codex, OpenRouter, Anthropic API order. Long refresh text wraps when
 needed. These ages describe saved observations, not when GitHub last fetched
 the image; GitHub's image proxy may add another cache delay.
 
@@ -99,7 +100,7 @@ The first explicit `github`, `wakatime` or `codex` ID selects **public mode** fo
 the entire request. Supply every account you want; omitted accounts do not fall
 back to the deployment owner. This also applies when an explicit ID happens to
 match the configured ID. Owner tokens, private data, Codex CLI/imports and
-OpenRouter credentials are never reused for public profiles.
+OpenRouter/Anthropic credentials are never reused for public profiles.
 
 | Selection example | Meaning |
 | --- | --- |
@@ -109,9 +110,12 @@ OpenRouter credentials are never reused for public profiles.
 | `?sources=github,codex` | Configured GitHub/Codex subset, if available |
 | `?sources=wakatime,openrouter` | Configured WakaTime/OpenRouter subset, if available |
 | `?sources=github,codex,openrouter` | Three configured providers, each with its own reporting period |
+| `?sources=anthropic` | Configured Anthropic organization usage; requires a server-side Admin key |
+| `?sources=codex,anthropic` | Configured Codex and Anthropic API, with independent scopes and periods |
+| `?sources=github,wakatime,codex,openrouter,anthropic` | All five built-in sources; unavailable fields stay unknown |
 | `?github=octocat&codex=your-id&sources=github,codex,openrouter` | Public GitHub and Codex link; selected OpenRouter explicitly unavailable, never the owner's usage |
 
-`sources` supports every nonempty subset of the four provider names (15
+`sources` supports every nonempty subset of the five provider names (31
 combinations). It is a mask, not authentication and not a claim that all selected
 sources have data. Omitted `sources` infers providers from the selected public IDs
 or configured connections. Public usernames collect/cache on demand only and are
@@ -123,7 +127,7 @@ parameters are rejected. Encode parameter values using normal URL encoding.
 
 ## Source-specific cards
 
-Keep `view=overview` for the combined card. Four focused variants use the same
+Keep `view=overview` for the combined card. Five focused variants use the same
 selected accounts, caches and source mask:
 
 ```text
@@ -131,6 +135,7 @@ selected accounts, caches and source mask:
 /?view=wakatime
 /?view=codex
 /?view=openrouter
+/?view=anthropic
 /?github=octocat&view=github
 /?wakatime=your-wakatime-id&view=wakatime
 ```
@@ -138,6 +143,8 @@ selected accounts, caches and source mask:
 The GitHub variant distinguishes public-only fields from full token coverage;
 WakaTime shows its own period/languages without inventing GitHub bytes. Codex
 and OpenRouter show their five native metrics when configured and available.
+Anthropic API shows its organization token total and reporting period; it does
+not invent request/streak metrics or represent a Claude Pro/Max subscription.
 Unavailable or unselected data remains labelled with setup/scope guidance,
 rather than copying another account's usage or substituting zeros.
 The older `languages` and `activity` views remain supported.
@@ -188,17 +195,17 @@ Example:
 | `range` | `all_time`, `last_7_days`, `last_30_days` | Server's `DEFAULT_RANGE`, or `all_time` when omitted |
 | `theme` | `dark`, `light`, `transparent` | `transparent` |
 | `header` | `true`, `false`; show or hide the avatar, name and bio | `true` |
-| `view` | `overview`, `github`, `wakatime`, `codex`, `openrouter`; legacy `languages`, `activity` | `overview` |
+| `view` | `overview`, `github`, `wakatime`, `codex`, `openrouter`, `anthropic`; legacy `languages`, `activity` | `overview` |
 | `limit` | Integers1–100; the final row is the unselected remainder | `10` |
 | `sort` | `time`, `code`, `name`, `alternating` | `code` |
 | `github` | Bare public GitHub username | Omitted: configured mode |
 | `wakatime` | Bare public WakaTime username or UUID | Omitted: configured mode |
 | `codex` | Bare Codex ID; the canonical page URL is constructed internally | Omitted: configured mode |
-| `sources` | Comma-separated unique `github,wakatime,codex,openrouter` subset | Infer from public IDs or configured connections |
+| `sources` | Comma-separated unique `github,wakatime,codex,openrouter,anthropic` subset | Infer from public IDs or configured connections |
 
 Range changes affect **WakaTime only**. GitHub activity keeps its API-defined
-periods, Codex remains lifetime as of its observation, and OpenRouter keeps its
-configured completed-day interval. The WakaTime range must be public or
+periods, Codex remains lifetime as of its observation, and OpenRouter and
+Anthropic keep their configured completed-day intervals. The WakaTime range must be public or
 authorized. The default ten language rows are nine named
 groups plus Others. Sorting changes their order, not which groups are selected.
 Each bar column rounds its largest source share upward to the next 10 percentage
@@ -208,7 +215,9 @@ The `overview` and `languages` images include selected enabled usage rows. The `
 view concentrates on GitHub activity and omits those usage rows while retaining
 source refresh metadata. Public account selectors and source masks apply equally
 to SVG, `/build` and `/api/stats`. There are no URL parameters for provider tokens
-or Codex logins. OpenRouter has no anonymous username usage endpoint.
+or Codex logins. OpenRouter and Anthropic have no anonymous username usage
+endpoint in this integration. Anthropic has no separate public account-ID
+parameter; its organization usage is available only through server configuration.
 
 ## How this relates to the reference project
 

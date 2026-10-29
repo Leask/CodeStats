@@ -246,7 +246,7 @@ describe('partial overview composition', () => {
         data.selectedSources = [];
         const svg = render(data);
         expect(svg).toContain('Select a source to build your card.');
-        expect(svg).toContain('Choose GitHub, WakaTime, Codex or OpenRouter');
+        expect(svg).toContain('Choose GitHub, WakaTime, Codex, OpenRouter or Anthropic API');
         expect(svg).not.toContain('data-source-header');
         expect(svg).not.toContain('data-source-section');
         expect(svg).not.toContain('data-source-metric');

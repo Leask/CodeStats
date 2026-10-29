@@ -6,19 +6,21 @@ import type {
     AIUsageData, Range, Settings, SourceSnapshot, StatsSnapshot,
 } from '../src/types';
 
-const services: PrimarySource[] = ['github', 'wakatime', 'codex', 'openrouter'];
-const labels = ['GitHub', 'WakaTime', 'Codex', 'OpenRouter'];
+const services: PrimarySource[] = ['github', 'wakatime', 'codex', 'openrouter', 'anthropic'];
+const labels = ['GitHub', 'WakaTime', 'Codex', 'OpenRouter', 'Anthropic API'];
 const settings: Settings = {
     GITHUB_USERNAME: 'owner', WAKATIME_USERNAME: 'owner-time',
     CODEX_USERNAME: 'owner-codex',
     GITHUB_TOKEN: 'github-private-credential-fixture',
     WAKATIME_TOKEN: 'waka-private-credential-fixture',
     OPENROUTER_API_KEY: 'router-private-credential-fixture',
+    ANTHROPIC_ADMIN_KEY: 'anthropic-private-credential-fixture',
     DEFAULT_RANGE: 'all_time', FRESH_SECONDS: '21600', RETRY_SECONDS: '900',
 };
 const observed = {
     github: '2026-10-28T09:01:00Z', wakatime: '2026-10-28T10:02:00Z',
     codex: '2026-10-28T11:03:00Z', openrouter: '2026-10-28T12:04:00Z',
+    anthropic: '2026-10-28T12:45:00Z',
 };
 
 function source<T>(data: T, provider: PrimarySource): SourceSnapshot<T> {
@@ -27,16 +29,19 @@ function source<T>(data: T, provider: PrimarySource): SourceSnapshot<T> {
 }
 
 function fixture(): StatsSnapshot {
-    const usage = (service: 'codex' | 'openrouter'): AIUsageData => ({
-        service, label: service, totalTokens: service === 'codex' ? 713003 : 813004,
+    const usage = (service: 'codex' | 'openrouter' | 'anthropic'): AIUsageData => ({
+        service, label: service, totalTokens: service === 'codex' ? 713003
+            : service === 'openrouter' ? 813004 : 913005,
         totalPrompts: service === 'openrouter' ? 713 : undefined,
-        period: service === 'codex' ? 'Lifetime' : 'Last 367 days',
+        period: service === 'codex' ? 'Lifetime'
+            : service === 'openrouter' ? 'Last 367 days' : 'Last 30 days',
         since: null, until: '2026-10-28', scope: 'Fixture account aggregate',
         summary: service === 'codex' ? {
             peakDailyTokens: 513, longestRunningTurnSec: 3500,
             longestStreakDays: 109, currentStreakDays: 82,
-        } : { averageDailyTokens: 1271, averageWeeklyTokens: 8897,
-            longestStreakDays: 120 },
+        } : service === 'openrouter'
+            ? { averageDailyTokens: 1271, averageWeeklyTokens: 8897,
+                longestStreakDays: 120 } : undefined,
     });
     return {
         schemaVersion: 1, range: 'all_time', generatedAt: '2026-10-28T13:05:00Z',
@@ -60,7 +65,8 @@ function fixture(): StatsSnapshot {
             languages: [{ name: 'Python', seconds: 73740, percent: 100 }],
         }, 'wakatime'),
         aiUsage: { codex: source(usage('codex'), 'codex'),
-            openrouter: source(usage('openrouter'), 'openrouter') },
+            openrouter: source(usage('openrouter'), 'openrouter'),
+            anthropic: source(usage('anthropic'), 'anthropic') },
     };
 }
 
@@ -93,7 +99,7 @@ async function card(handler: ReturnType<typeof createHandler>, query: Record<str
 }
 
 describe('multi-source HTTP selection', () => {
-    it.each(Array.from({ length: 15 }, (_, index) => index + 1))(
+    it.each(Array.from({ length: 2 ** services.length - 1 }, (_, index) => index + 1))(
         'isolates selected data and native refresh times for source mask %i', async mask => {
             const original = fixture();
             const before = structuredClone(original);
@@ -131,7 +137,8 @@ describe('multi-source HTTP selection', () => {
                 expect(JSON.stringify(data)).not.toContain('73740');
                 expect(svg).not.toContain('owner-time');
             }
-            for (const secret of ['github-private-', 'waka-private-', 'router-private-']) {
+            for (const secret of ['github-private-', 'waka-private-', 'router-private-',
+                'anthropic-private-']) {
                 expect(JSON.stringify(data) + svg).not.toContain(secret);
             }
             expect(original).toEqual(before);
@@ -207,7 +214,7 @@ describe('public HTTP privacy boundaries', () => {
         expect(data.github.data).toBeNull();
         expect(data.github.lastSuccessAt).toBeNull();
         expect(data.githubActivity).toBeUndefined();
-        for (const provider of ['codex', 'openrouter'] as const) {
+        for (const provider of ['codex', 'openrouter', 'anthropic'] as const) {
             expect(data.aiUsage?.[provider]).toMatchObject({ data: null,
                 lastSuccessAt: null, lastAttemptAt: null, retryAt: null,
                 status: 'unavailable' });
@@ -217,6 +224,7 @@ describe('public HTTP privacy boundaries', () => {
         expect(text).not.toContain('private-activity-scope-fixture');
         expect(text).not.toContain('713003');
         expect(text).not.toContain('813004');
+        expect(text).not.toContain('913005');
         const svg = await card(handler, { ...publicQuery, view: 'codex' });
         expect(svg).toContain('href="https://chatgpt.com/u/owner-codex"');
         expect(svg).not.toContain('713,003');
@@ -226,18 +234,18 @@ describe('public HTTP privacy boundaries', () => {
 
     it('scrubs owner AI refresh metadata and raw errors even without cached data', async () => {
         const original = fixture();
-        for (const provider of ['codex', 'openrouter'] as const) {
+        for (const provider of ['codex', 'openrouter', 'anthropic'] as const) {
             original.aiUsage![provider]!.data = null;
             original.aiUsage![provider]!.lastError = 'owner-private-native-error-fixture';
             original.aiUsage![provider]!.retryAt = '2026-10-29T01:00:00Z';
         }
         const { handler } = app(original);
-        const query = { codex: 'external-id', sources: 'codex,openrouter' };
+        const query = { codex: 'external-id', sources: 'codex,openrouter,anthropic' };
         const data = await json(handler, query);
         const text = JSON.stringify(data) + await card(handler, query);
         expect(text).not.toContain('owner-private-native-error-fixture');
         expect(text).not.toContain('2026-10-29T01:00:00Z');
-        for (const provider of ['codex', 'openrouter'] as const) {
+        for (const provider of ['codex', 'openrouter', 'anthropic'] as const) {
             expect(data.aiUsage?.[provider]?.lastSuccessAt).toBeNull();
             expect(data.aiUsage?.[provider]?.lastAttemptAt).toBeNull();
             expect(text).not.toContain(observed[provider]);
@@ -310,7 +318,7 @@ describe('HTTP query validation before reading state', () => {
         ['codex', 'https://chatgpt.com/u/owner'], ['codex', '../owner'],
         ['codex', '.'], ['codex', 'user?other'],
         ['sources', ''], ['sources', 'github,github'], ['sources', 'github,'],
-        ['sources', 'unknown'], ['sources', 'anthropic'],
+        ['sources', 'unknown'], ['sources', 'anthropic,anthropic'],
         ['token', 'private-fixture-value'], ['github_token', 'private-fixture-value'],
         ['apiKey', 'private-fixture-value'], ['authorization', 'private-fixture-value'],
         ['openrouter_api_key', 'private-fixture-value'],

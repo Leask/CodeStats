@@ -2,9 +2,11 @@
 
 [Back to CodeStats](../README.md) · [Implementation contract](CONTRACT.md)
 
-Current local acceptance: [public profiles and source views, 2026-10-28](history/validation-2026-10-28-public-profiles.md).
+Historical local acceptance: [public profiles and source views, 2026-10-28](history/validation-2026-10-28-public-profiles.md).
 The earlier [four-source builder review](history/validation-2026-10-28-four-sources.md)
-remains historical; it predates public multi-profile selection.
+also remains historical; it predates public multi-profile selection. The
+five-source implementation needs current test and browser receipts. Neither
+historical report establishes live Anthropic API access.
 
 Run from the repository root with Node.js 26+ and `npm ci` already completed:
 
@@ -24,18 +26,18 @@ npm run test:profiles:browser
 | `build:node` | Bundled Node entry point at `dist/node.mjs` |
 | `build` | Wrangler dry-run bundle; no production deployment |
 | `test:runtime` | Real workerd and SQLite Durable Objects in isolated storage, using mocked upstreams |
-| `test:profiles:browser` | Generated Worker, configured/public account isolation, 15 masks per mode, builder inputs/Markdown and focused-card geometry in an actual browser |
+| `test:profiles:browser` | Generated Worker, configured/public account isolation, source masks, builder inputs/Markdown and focused-card geometry in an actual browser |
 
 Runtime tests cover persistence across restart, bounded retries, partial source
 failure and retained successful values/timestamps. They use no live tokens and
 create no deployed cloud resources. A passing build does not prove an upstream
 connection or working browser interface.
 
-## Four-source acceptance
+## Five-source acceptance
 
-GitHub, WakaTime, Codex and OpenRouter are separate services. GitHub's repository
+GitHub, WakaTime, Codex, OpenRouter and Anthropic API are separate services. GitHub's repository
 and activity snapshots are separate datasets inside one service. Do not count
-them as a fifth source, or infer that all GitHub data is fresh from one dataset.
+them as an extra source, or infer that all GitHub data is fresh from one dataset.
 
 | Source | Verify with real configuration |
 | --- | --- |
@@ -44,13 +46,18 @@ them as a fifth source, or infer that all GitHub data is fresh from one dataset.
 | Codex on Node | Enabled only when intended; local supported CLI login returns five native account-summary metrics; no chat or login material published |
 | Codex on Worker | One successful authenticated numeric-only sync, original observation time preserved, newer observation required for a subsequent import |
 | OpenRouter | Management-key access, stated completed-UTC interval, every returned aggregate included, five metrics and rejected partial responses |
+| Anthropic API | Organization Admin-key access, correct completed-UTC interval, all usage pages included, exact input/output/cache token sum and rejected partial responses; no Claude subscription or invented metrics |
 
-Run the card with Codex/OpenRouter disabled as well. Their four-source builder
+Run the card with Codex/OpenRouter/Anthropic disabled as well. Their five-source builder
 cards must explain **Not enabled**, while their SVG rows and footer refresh times
-remain absent. Missing native fields must show a dash, real zeros must stay zero,
+remain absent from the default card. Explicitly selecting an unconfigured source
+must show unavailable metrics without borrowing another provider's values.
+Missing native fields must show a dash, real zeros must stay zero,
 and a failed refresh must retain last-good values and their original timestamp.
-Anthropic is an optional additional organization API source, not a fifth default
-provider or a substitute for personal Claude subscription statistics.
+Anthropic is built in and auto-enables from `ANTHROPIC_ADMIN_KEY`; it does not
+require a plugin or represent personal Claude subscription statistics. Tests
+without a real Admin key establish fixture behavior only, not a live organization
+connection.
 
 `/health` confirms runtime readiness and configuration presence/intent only.
 Verify real collection through each snapshot in `/api/stats` and the builder's
@@ -82,7 +89,7 @@ test for every profile or an attestation about production freshness.
 
 Review these visible behaviors:
 
-- Four primary source cards, one grouped GitHub service, useful disabled/error
+- Five built-in source cards, one grouped GitHub service, useful disabled/error
   guidance, and no credential-entry fields or exposed keys in the browser.
 - Working presentation controls, readable inset dropdown arrows, mobile layout,
   generated Markdown and clipboard interaction.
@@ -91,7 +98,8 @@ Review these visible behaviors:
   10-percentage-point steps. Raw values remain under their own bars.
 - Three card font sizes, aligned outer edges, rank at top-right with/without the
   profile header, and a 20px rank/overview gap in the no-header card.
-- Codex before OpenRouter, five metrics each, periods retained, and per-source
+- Codex before OpenRouter, then Anthropic API; five native metrics for the first
+  two and a verified token total for Anthropic, periods retained, and per-source
   refresh labels that wrap without colliding with right-aligned project credit.
 - Default transparent root SVG, optional explicit themes, native expandable
   README sections, and a usable Markdown generator even when statistics fail.
@@ -103,9 +111,9 @@ proxy can cache a previous successful response after the origin changes.
 
 ## Public profiles and source combinations
 
-Validate all 15 nonempty subsets of `github,wakatime,codex,openrouter`, including
-`github,codex`, `wakatime,openrouter` and `github,codex,openrouter`. Exercise
-`overview` and each focused `github`, `wakatime`, `codex`, `openrouter` view;
+Validate all 31 nonempty subsets of `github,wakatime,codex,openrouter,anthropic`, including
+`github,codex`, `wakatime,openrouter`, `codex,anthropic` and `github,codex,openrouter,anthropic`. Exercise
+`overview` and each focused `github`, `wakatime`, `codex`, `openrouter`, `anthropic` view;
 retain legacy `languages`/`activity`. A mask selects sources; it cannot grant
 credentials or manufacture unavailable statistics.
 
@@ -126,7 +134,8 @@ copy credentials to tests:
   Switching to a resolved/unresolved WakaTime namespace must leave saved GitHub
   and AI observations, including Codex imports, in their existing lineages.
 - Public Codex IDs produce canonical fixed-host links with unavailable usage;
-  owner CLI/imports are never read. Public OpenRouter does not expose owner totals.
+  owner CLI/imports are never read. Public OpenRouter and Anthropic do not expose
+  owner totals or send the owner's credentials to their APIs.
 - Public cache identities are isolated from configured/private ones. Changing
   presentation/masks must not copy observations across accounts or modes.
 - Malformed IDs, duplicate/unknown masks, secret query parameters, untrusted
