@@ -279,13 +279,25 @@ sync against the public origin.
 ### Workers Builds dashboard
 
 Optional Git integration can use the repository root, an empty **Build command**
-and **Deploy command** `npx wrangler deploy`. Wrangler bundles TypeScript itself.
+and **Deploy command** `npm run deploy:ci`. Wrangler bundles TypeScript itself.
 Use the Node version in `.nvmrc`; leave the repository's bundle settings intact.
 
-Add enabled-service credentials to the deployed Worker's **Settings → Variables
-and Secrets**, choosing **Secret**. A secret under **Build settings** does not by
-itself create the runtime binding. Save/deploy the runtime changes, then inspect
-`/build` and `/api/stats`. Put public options in `wrangler.jsonc`.
+The CI command copies only supported CodeStats settings from the build
+environment into the deployed Worker. Configure provider credentials under
+**Build settings** as Secrets: `GITHUB_TOKEN`, `WAKATIME_TOKEN`,
+`OPENROUTER_API_KEY`, and optionally a manually managed `CODEX_SYNC_TOKEN` or
+`ANTHROPIC_ADMIN_KEY`. Public settings such as `CODEX_USERNAME` and
+`WAKATIME_USERNAME` are passed as runtime Variables. Cloudflare build-auth tokens
+and unrelated environment values are never forwarded as Worker bindings.
+
+Provider secrets use a temporary private JSON file and Wrangler's
+`--secrets-file` option; values never appear in CLI arguments, and the file is
+removed when deployment finishes or fails. Missing/empty build values preserve
+existing runtime secrets. The command uses `--keep-vars` to retain dashboard
+Variables. Directly managed runtime Secrets under the deployed Worker's
+**Settings → Variables and Secrets** remain supported. Plain `npx wrangler deploy`
+does not perform this build-to-runtime forwarding. Inspect `/build` and
+`/api/stats` after saving/deploying changes.
 
 `keep_vars: true` preserves dashboard Variables on later Wrangler deployments.
 Variables and Secrets are both read through `env`, but Secrets hide credential

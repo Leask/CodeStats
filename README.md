@@ -147,9 +147,11 @@ This transfers only the numeric/null summary and observation time, not your
 Codex credentials or conversations. It is a manual command and creates no timer.
 See [the full Codex bridge setup](docs/AI-USAGE.md#cloudflare-worker).
 
-For Workers Builds, add provider secrets to the deployed Worker's
-**Settings → Variables and Secrets** as **Secrets**. Build secrets alone do not
-create runtime bindings. See [dashboard setup](docs/DEPLOYMENT.md#workers-builds-dashboard).
+For Workers Builds, use **Deploy command** `npm run deploy:ci`. It forwards only
+CodeStats's supported build settings and provider secrets into runtime bindings,
+without exposing secrets in command arguments. Alternatively, manage Secrets
+directly under the deployed Worker's **Settings → Variables and Secrets**.
+See [dashboard setup](docs/DEPLOYMENT.md#workers-builds-dashboard).
 
 ## 4. Review and embed
 
