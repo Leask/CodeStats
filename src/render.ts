@@ -879,8 +879,15 @@ export function renderCard(snapshot: StatsSnapshot, options: CardOptions): strin
     // widths. The full username remains in the accessible title.
     const alignRight = 'transform-box:fill-box;transform:translateX(-100%)';
     const rankY = cardPadding + 20 + 11;
+    // One GitHub label covers both repository data and personal activity.
+    // Use the oldest displayed dataset, as the focused source cards do.
+    const githubTimes = [snapshot.github.lastSuccessAt,
+        ...(githubActivity ? [activitySource.lastSuccessAt] : [])]
+        .filter((value): value is string => !!value && Number.isFinite(Date.parse(value)));
+    const githubAt = githubTimes.length ? githubTimes.reduce((oldest, value) =>
+        Date.parse(value) < Date.parse(oldest) ? value : oldest) : null;
     const refreshLabels = [
-        `GitHub: ${refreshAge(snapshot.github.lastSuccessAt, snapshot.generatedAt)}`,
+        `GitHub: ${refreshAge(githubAt, snapshot.generatedAt)}`,
         `WakaTime: ${refreshAge(snapshot.wakatime.lastSuccessAt, snapshot.generatedAt)}`,
         ...aiSources.map(({ label, source }) => `${label}: `
             + refreshAge(source.lastSuccessAt, snapshot.generatedAt)),

@@ -716,6 +716,15 @@ describe('safe README SVG', () => {
             .toBe('4 hr ago');
     });
 
+    it('does not hide older GitHub activity behind a newer repository timestamp', () => {
+        const data = activitySnapshot();
+        data.githubActivity!.status = 'stale';
+        data.githubActivity!.lastError = 'GitHub API returned HTTP 502.';
+        const svg = renderCard(data, options);
+        expect(svg).toContain('GitHub: 3 hr ago | WakaTime: 1 hr, 30 mins ago');
+        expect(svg).not.toContain('GitHub: 1 hr ago');
+    });
+
     it.each([
         ['2014-12-11', '2026-10-25', 'Recent 12 years'],
         ['2026-05-01', '2026-10-24', 'Recent 6 months'],
