@@ -25,7 +25,7 @@ export async function deployCi(options = {}) {
     const variables = values(variableNames);
     for (const value of Object.values(variables)) {
         if (/[\r\n]/.test(value)
-            || /(?:gh[pousr]_|github_pat_|waka_tok_|sk-or-v1-|sk-ant-)/i.test(value)) {
+            || /(?:gh[pousr]_|github_pat_|waka_tok_|waka_[a-f\d]{8}-|sk-or-v1-|sk-ant-)/i.test(value)) {
             throw new Error('A public deployment variable contains credential-like data.');
         }
     }

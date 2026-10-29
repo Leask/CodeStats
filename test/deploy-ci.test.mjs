@@ -86,11 +86,13 @@ describe('CI runtime environment forwarding', () => {
         expect(await readdir(path)).toEqual([]);
     });
 
-    it('rejects a credential accidentally placed in a public variable before spawning', async () => {
+    it.each(['waka_tok_accidentally_pasted',
+        'waka_' + [8, 4, 4, 4, 12].map(width => '1'.repeat(width)).join('-')])(
+        'rejects a credential accidentally placed in a public variable before spawning: %s', async value => {
         const path = await directory();
         const start = vi.fn();
         await expect(deployCi({ temporaryDirectory: path, spawn: start,
-            environment: { CODEX_USERNAME: 'waka_tok_accidentally_pasted' } }))
+            environment: { CODEX_USERNAME: value } }))
             .rejects.toThrow('credential-like');
         expect(start).not.toHaveBeenCalled();
         expect(await readdir(path)).toEqual([]);
