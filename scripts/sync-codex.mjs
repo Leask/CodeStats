@@ -2,8 +2,39 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { syncToken, SyncTokenError } from './codex-sync-token.mjs';
 import { WorkerOriginError } from './verify-worker-origin.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 class SyncError extends Error {}
+
+/** New Worker secrets can take a few seconds to reach the request's edge. */
+export async function uploadObservation(target, token, reading, options = {}) {
+    const send = options.fetch ?? fetch;
+    const wait = options.wait ?? delay;
+    const body = JSON.stringify(reading);
+    for (let attempt = 0; attempt < 6; attempt++) {
+        let response;
+        try {
+            response = await send(target, {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + token,
+                    'Content-Type': 'application/json' },
+                body, redirect: 'manual', signal: AbortSignal.timeout(30_000),
+            });
+        } catch {
+            throw new SyncError('CodeStats could not be reached for the usage sync.');
+        }
+        await response.body?.cancel();
+        if (response.ok) return;
+        // These responses are emitted before any aggregate is saved. An
+        // uncertain network/5xx result must never trigger another write.
+        if ([401, 404].includes(response.status) && attempt < 5) {
+            await wait(1000 * 2 ** attempt);
+            continue;
+        }
+        throw new SyncError('CodeStats rejected the usage sync (HTTP '
+            + response.status + ').');
+    }
+}
 
 /** Keep the bridge secret out of remote URLs, redirects and process arguments. */
 function destination(value) {
@@ -38,24 +69,7 @@ async function main() {
             + 'and verify your existing local Codex-service login.');
     }
     const token = await syncToken(target.origin);
-    let response;
-    try {
-        response = await fetch(target, {
-            method: 'POST',
-            headers: { Authorization: 'Bearer ' + token,
-                'Content-Type': 'application/json' },
-            body: JSON.stringify(reading),
-            redirect: 'manual',
-            signal: AbortSignal.timeout(30_000),
-        });
-    } catch {
-        throw new SyncError('CodeStats could not be reached for the usage sync.');
-    }
-    await response.body?.cancel();
-    if (!response.ok) {
-        throw new SyncError('CodeStats rejected the usage sync (HTTP '
-            + response.status + ').');
-    }
+    await uploadObservation(target, token, reading);
     console.log('Codex usage synced successfully.');
 }
 
