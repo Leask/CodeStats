@@ -1,28 +1,29 @@
-# Worker secrets only: copy to ignored .dev.vars and replace placeholders.
-# Four primary services: GitHub, WakaTime, Codex, OpenRouter.
+# Worker secrets only: copy to ignored .dev.vars and fill only the sources you use.
+# Five built-in sources: GitHub, WakaTime, Codex, OpenRouter, Anthropic API.
+# Active empty assignments let Deploy to Cloudflare discover optional secrets.
 # Keep usernames, enable flags, periods and cache options in wrangler.jsonc vars.
 # Explicit upload: npm run deploy -- --secrets-file .dev.vars
 # Never put credentials in Wrangler vars, source control or README image URLs.
 
 # GitHub username-only public REST needs no token. For full owner/private data:
 # GitHub classic PAT/OAuth scopes: repo, read:user, read:org.
-# GITHUB_TOKEN=replace_with_a_server_side_github_token
+GITHUB_TOKEN=
 
 # WakaTime public-first needs no secret. Same-range OAuth fallback/token-only:
 # Scopes: email plus read_stats.languages (or read_stats).
-# WAKATIME_TOKEN=replace_with_a_read_stats_oauth_token
+WAKATIME_TOKEN=
 
 # Codex auto-enables when CODEX_SYNC_TOKEN or CODEX_USERNAME is configured.
 # Optional CODEX_USAGE_ENABLED=false in Wrangler vars overrides auto-enabling.
 # Optional CODEX_USERNAME in vars is a bare public ID, never a profile URL.
 # Normally sync:codex creates/installs the Worker secret after deployment.
 # Optional manual override: share a separate >=32-character secret with the helper.
-# CODEX_SYNC_TOKEN=replace_with_an_independent_sync_secret
+CODEX_SYNC_TOKEN=
 
 # OpenRouter Management key; an ordinary model-inference key is insufficient.
-# OPENROUTER_API_KEY=replace_with_a_management_key
+OPENROUTER_API_KEY=
 # Reporting start OPENROUTER_USAGE_SINCE belongs in vars, not this upload file.
 
-# Advanced optional extra: Anthropic organization API usage, not Claude Pro/Max.
-# ANTHROPIC_ADMIN_KEY=replace_with_an_anthropic_admin_key
+# Anthropic organization API usage, not Claude Pro/Max.
+ANTHROPIC_ADMIN_KEY=
 # ANTHROPIC_USAGE_SINCE belongs in Wrangler vars if overriding its default.

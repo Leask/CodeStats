@@ -9,7 +9,7 @@
         "check": "tsc --noEmit",
         "test": "vitest run",
         "build": "wrangler deploy --dry-run --outdir dist",
-        "deploy": "wrangler deploy",
+        "deploy": "node scripts/deploy-ci.mjs",
         "deploy:ci": "node scripts/deploy-ci.mjs",
         "test:runtime": "node scripts/cache-runtime-check.mjs",
         "test:preview": "node scripts/preview-check.mjs",
@@ -46,5 +46,54 @@
         "type": "git",
         "url": "https://github.com/Leask/CodeStats.git"
     },
-    "homepage": "https://github.com/Leask/CodeStats#readme"
+    "homepage": "https://github.com/Leask/CodeStats#readme",
+    "cloudflare": {
+        "bindings": {
+            "GITHUB_USERNAME": {
+                "description": "Replace the template username with your own GitHub username. For private statistics, GITHUB_TOKEN must belong to this account."
+            },
+            "WAKATIME_USERNAME": {
+                "description": "Replace the template username with your WakaTime username. Public statistics need no token; leave empty if unused."
+            },
+            "GITHUB_TOKEN": {
+                "description": "Optional. Your GitHub PAT/OAuth token with repo, read:user and read:org for full owner/private statistics. Leave empty for public-only data."
+            },
+            "WAKATIME_TOKEN": {
+                "description": "Optional WakaTime OAuth read token for owner-verified fallback. Leave empty for public statistics; heartbeat ingestion API keys do not grant statistics access."
+            },
+            "CODEX_SYNC_TOKEN": {
+                "description": "Normally leave empty. After deploying, run npm run sync:codex locally to generate/install this secret and send numeric usage aggregates. A Codex login token does not belong here."
+            },
+            "OPENROUTER_API_KEY": {
+                "description": "Optional OpenRouter Management key for account usage. An ordinary inference key is insufficient. Leave empty if unused."
+            },
+            "ANTHROPIC_ADMIN_KEY": {
+                "description": "Optional Anthropic organization Admin key for Claude API usage, not a Claude Pro/Max subscription. Leave empty if unused."
+            },
+            "GITHUB_VISIBILITY": {
+                "description": "Use all with an owner token for public/private coverage; public limits the repository inventory to public data."
+            },
+            "GITHUB_REPOSITORY_AFFILIATIONS": {
+                "description": "Repository inventory scope. OWNER,COLLABORATOR,ORGANIZATION_MEMBER includes accessible owned, collaborative and organization repositories."
+            },
+            "GITHUB_INCLUDE_FORKS": {
+                "description": "Include owned/accessible forks in repository and language inventories. Stars remain limited to owned repositories."
+            },
+            "GITHUB_INCLUDE_OWN_CONTRIBUTIONS": {
+                "description": "Include your own repositories in contributed-repository statistics."
+            },
+            "DEFAULT_RANGE": {
+                "description": "WakaTime range only: all_time is the default. GitHub and AI providers keep their own reporting periods."
+            },
+            "FRESH_SECONDS": {
+                "description": "Snapshot freshness in seconds. 21600 means six hours; older successful data remains available after upstream failures."
+            },
+            "RETRY_SECONDS": {
+                "description": "Failed upstream retry delay in seconds. 900 means fifteen minutes; a longer upstream rate-limit delay takes precedence."
+            },
+            "SNAPSHOTS": {
+                "description": "Persistent last-successful statistics cache. Cloudflare provisions the SQLite Durable Object automatically."
+            }
+        }
+    }
 }

@@ -1256,7 +1256,7 @@ display:flex;flex-wrap:wrap;gap:0 16px}.source-picker legend{width:100%}}
 <body>
 <div class="shell">
 <nav><div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>CodeStats</div>
-<div class="nav-links"><a href="${docs}DEPLOYMENT.md" target="_blank" rel="noopener noreferrer">Setup guide ↗</a><span class="local" id="environment">CARD BUILDER</span></div></nav>
+<div class="nav-links"><a class="button" href="https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2FLeask%2FCodeStats" target="_blank" rel="noopener noreferrer">Deploy to Cloudflare ↗</a><a href="${docs}DEPLOYMENT.md" target="_blank" rel="noopener noreferrer">Setup guide ↗</a><span class="local" id="environment">CARD BUILDER</span></div></nav>
 <header class="hero"><div><div class="eyebrow">Five sources. One developer card.</div><h1>Build your card.</h1>
 <p>GitHub activity, WakaTime coding hours, Codex, OpenRouter and Anthropic API usage.<br>Choose your style, then copy one Markdown snippet.</p>
 <div class="source-strip" aria-label="Supported sources"><span>${sourceIcon(GITHUB_ICON)}GitHub</span><span>${sourceIcon(CLOCK_ICON)}WakaTime</span><span>${sourceIcon(PROVIDER_ICONS.codex, 24)}Codex</span><span>${sourceIcon(PROVIDER_ICONS.openrouter, 24)}OpenRouter</span><span>${sourceIcon(PROVIDER_ICONS.anthropic, 24)}Anthropic API</span></div></div>

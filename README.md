@@ -4,6 +4,8 @@ Your **GitHub, WakaTime, Codex, OpenRouter and Anthropic API** activity in one p
 Run it on **Node.js** or **Cloudflare Workers**, then paste one Markdown snippet
 into your GitHub README.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2FLeask%2FCodeStats)
+
 [![CodeStats](https://codestats.leask.workers.dev/)](https://github.com/Leask/CodeStats)
 
 CodeStats collects its own statistics and keeps the last successful snapshot
@@ -35,6 +37,32 @@ remain visible there as **Not enabled**, with a setup link.
 
 All five integrations are built in. No provider plugin or separate installation
 is needed; configure only the sources you want to display.
+
+## Deploy to Cloudflare
+
+Use the **Deploy to Cloudflare** button above to deploy without installing a
+local toolchain:
+
+1. Sign in to Cloudflare and connect your GitHub account. Choose names for your
+   new repository and Worker.
+2. Replace the template's GitHub and WakaTime usernames with **your own IDs**.
+   Fill only the provider Secrets you want to use; unused sources need no key.
+   You can also add credentials later in the Worker's **Settings → Variables
+   and Secrets**, choosing **Secret**.
+3. Keep the detected **Deploy command** `npm run deploy`. Cloudflare provisions
+   the SQLite Durable Object cache from the existing binding and migration.
+4. Open the deployed Worker's `/build`, verify source status, and copy the
+   generated Markdown into your GitHub README.
+
+The same deployment command explicitly forwards supported Build environment
+settings into Worker runtime bindings; saving a Build variable alone is not
+enough. Do not keep different copies of the same setting in Build and runtime:
+a nonempty Build value is reapplied on deployment. See
+[deployment settings and precedence](docs/DEPLOYMENT.md#build-and-runtime-settings).
+Codex still needs the [local aggregate sync](docs/AI-USAGE.md#cloudflare-worker)
+after deployment; the button cannot read your local Codex login.
+
+The local Node.js and Wrangler paths below remain available.
 
 ## 1. Get the project
 
@@ -126,8 +154,9 @@ npx wrangler login
 npm run deploy -- --secrets-file .dev.vars
 ```
 
-This explicitly uploads the secrets-only file as Worker secrets. Ordinary
-`npm run deploy` does **not** automatically upload `.dev.vars` values.
+This explicitly uploads the secrets-only file as Worker secrets. `npm run deploy`
+also forwards supported nonempty process/Build settings, but does **not**
+automatically upload a local `.dev.vars` file without `--secrets-file`.
 Wrangler creates the configured SQLite Durable Object through its migration;
 no separate KV, D1 database, cron or GitHub Actions workflow is needed.
 See [Cloudflare deployment](docs/DEPLOYMENT.md#cloudflare-workers).
@@ -149,7 +178,8 @@ This transfers only the numeric/null summary and observation time, not your
 Codex credentials or conversations. It is a manual command and creates no timer.
 See [the full Codex bridge setup](docs/AI-USAGE.md#cloudflare-worker).
 
-For Workers Builds, use **Deploy command** `npm run deploy:ci`. It forwards only
+For Workers Builds, use **Deploy command** `npm run deploy` (`deploy:ci` remains
+a compatibility alias). It forwards only
 CodeStats's supported build settings and provider secrets into runtime bindings,
 without exposing secrets in command arguments. Alternatively, manage Secrets
 directly under the deployed Worker's **Settings → Variables and Secrets**.

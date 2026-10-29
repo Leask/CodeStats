@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -73,6 +73,87 @@ describe('CI runtime environment forwarding', () => {
         });
         await deployCi({ temporaryDirectory: path, spawn: start,
             environment: { GITHUB_TOKEN: ' ', DEFAULT_RANGE: 'all_time' } });
+        expect(await readdir(path)).toEqual([]);
+    });
+
+    it.each(['env', 'json'])('merges an explicit %s file without putting secrets in argv or process.env', async format => {
+        const path = await directory();
+        const filename = join(await directory(), 'provider-secrets.' + format);
+        const secrets = { GITHUB_TOKEN: 'explicit-file-fixture',
+            ANTHROPIC_ADMIN_KEY: 'explicit-admin-fixture', WAKATIME_TOKEN: '' };
+        await writeFile(filename, format === 'json' ? JSON.stringify(secrets)
+            : Object.entries(secrets).map(([name, value]) => name + '=' + value).join('\n'));
+        const start = child(async (_binary, args, options) => {
+            const temporary = args[args.indexOf('--secrets-file') + 1];
+            expect(JSON.parse(await readFile(temporary, 'utf8'))).toEqual({
+                GITHUB_TOKEN: secrets.GITHUB_TOKEN,
+                ANTHROPIC_ADMIN_KEY: secrets.ANTHROPIC_ADMIN_KEY,
+                OPENROUTER_API_KEY: 'build-router-fixture',
+            });
+            expect(args).toContain('--dry-run');
+            expect(args).not.toContain('--name');
+            expect(args.join(' ')).not.toContain('explicit-file-fixture');
+            expect(options.env.GITHUB_TOKEN).toBe('build-github-fixture');
+            expect(options.env.ANTHROPIC_ADMIN_KEY).toBeUndefined();
+            expect(options.env.WRANGLER_CI_OVERRIDE_NAME).toBe('customer-worker');
+            expect(options.env.CLOUDFLARE_ACCOUNT_ID).toBe('isolated-account-fixture');
+        });
+        await deployCi({ temporaryDirectory: path, spawn: start,
+            arguments: ['--dry-run', '--secrets-file', filename], environment: {
+                GITHUB_TOKEN: 'build-github-fixture', OPENROUTER_API_KEY: 'build-router-fixture',
+                WRANGLER_CI_OVERRIDE_NAME: 'customer-worker',
+                CLOUDFLARE_ACCOUNT_ID: 'isolated-account-fixture',
+            } });
+        expect(start).toHaveBeenCalledTimes(1);
+        expect(await readdir(path)).toEqual([]);
+    });
+
+    it('accepts an empty secrets sample without uploading placeholder or blank values', async () => {
+        const path = await directory();
+        const start = child(async (_binary, args) => {
+            expect(args).not.toContain('--secrets-file');
+        });
+        await deployCi({ temporaryDirectory: path, spawn: start, environment: {},
+            arguments: ['--secrets-file=.dev.vars.example'] });
+        expect(start).toHaveBeenCalledTimes(1);
+    });
+
+    it('forwards deliberately cleared account names while omitting blank secrets', async () => {
+        const start = child(async (_binary, args) => {
+            for (const name of ['GITHUB_USERNAME', 'WAKATIME_USERNAME', 'CODEX_USERNAME']) {
+                expect(args).toContain(name + ':');
+            }
+            expect(args).not.toContain('--secrets-file');
+        });
+        await deployCi({ spawn: start, environment: { GITHUB_USERNAME: '',
+            WAKATIME_USERNAME: ' ', CODEX_USERNAME: '', GITHUB_TOKEN: '' } });
+        expect(start).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['--secrets-file'], ['--secrets-file='], ['--unknown'],
+        ['--var', 'GITHUB_TOKEN:isolated-fixture'],
+        ['--dry-run', '--dry-run'],
+    ])('rejects ambiguous or unsupported arguments before starting a deployment: %j', async args => {
+        const path = await directory();
+        const start = vi.fn();
+        await expect(deployCi({ temporaryDirectory: path, spawn: start,
+            environment: {}, arguments: args })).rejects.toThrow();
+        expect(start).not.toHaveBeenCalled();
+        expect(await readdir(path)).toEqual([]);
+    });
+
+    it('rejects build authentication in provider files without including its value in errors', async () => {
+        const path = await directory();
+        const filename = join(await directory(), 'invalid.json');
+        await writeFile(filename, JSON.stringify({
+            CLOUDFLARE_API_TOKEN: 'isolated-build-auth-value',
+        }));
+        const start = vi.fn();
+        await expect(deployCi({ temporaryDirectory: path, spawn: start,
+            environment: {}, arguments: ['--secrets-file', filename] }))
+            .rejects.toThrow('only named provider secrets');
+        expect(start).not.toHaveBeenCalled();
         expect(await readdir(path)).toEqual([]);
     });
 

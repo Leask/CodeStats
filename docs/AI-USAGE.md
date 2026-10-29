@@ -237,7 +237,11 @@ independent cache, status panel and refresh timestamp as the other providers.
 No plugin or extra package is required. Set `ANTHROPIC_ADMIN_KEY` to an
 organization **Admin key** to enable collection automatically. On Node, put it
 in the ignored server environment file. On Workers, save it as a runtime
-**Secret**, or a Workers Builds Secret deployed with `npm run deploy:ci`.
+**Secret**, or a Workers Builds Secret deployed with `npm run deploy`
+(`deploy:ci` is a compatibility alias). If the same key is also maintained in
+Build settings, update or remove that Build copy when changing the runtime
+Secret; the next deployment otherwise reapplies it. See
+[Build and runtime settings](DEPLOYMENT.md#build-and-runtime-settings).
 
 ```dotenv
 ANTHROPIC_ADMIN_KEY=your-organization-admin-key

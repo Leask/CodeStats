@@ -233,6 +233,41 @@ workload; local validation is not a production-capacity test.
 [Durable Object pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
 [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
 
+### One-click deployment
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2FLeask%2FCodeStats)
+
+The button opens Cloudflare's template setup flow. Sign in to Cloudflare,
+connect GitHub, and choose a repository name and Worker name. Cloudflare copies
+the source into your account, so subsequent changes belong to your repository.
+Replace the template's GitHub and WakaTime usernames with your own; they need
+not be the same. Provider credentials are optional: fill only the services you
+want, or add their runtime Secrets after the initial deployment.
+
+The setup page discovers public settings from `wrangler.jsonc` `vars`, and
+Secret names from the active empty assignments in `.dev.vars.example`.
+`package.json` binding descriptions explain their scopes. No example contains
+real keys, and no provider Secret is required just to deploy a public card.
+
+Keep the detected **Deploy command** `npm run deploy`. The detected build check
+may remain in place; Wrangler bundles the Worker during deployment. Cloudflare
+provisions the `SNAPSHOTS` Durable Object from the binding and existing SQLite
+migration. Do not remove that migration or add a separate database manually.
+No cron, daemon, or GitHub Actions workflow is required.
+
+After deployment, open `/build`, confirm the selected sources and observation
+times, then copy the Markdown snippet. Credentials can also be added through
+the deployed Worker's **Settings → Variables and Secrets** as **Secrets**.
+Use the [settings precedence](#build-and-runtime-settings) below to avoid a
+later Build overwriting a newer runtime value.
+
+Codex account data still requires the
+[aggregate-only local bridge](AI-USAGE.md#cloudflare-worker). A Deploy button
+cannot access a local CLI login or make an arbitrary public Codex ID readable.
+
+This uses Cloudflare's supported [Deploy button
+flow](https://developers.cloudflare.com/workers/platform/deploy-buttons/).
+
 ### Configure and preview
 
 In `wrangler.jsonc`, replace the Worker `name`, `vars.GITHUB_USERNAME` and
@@ -274,9 +309,11 @@ npm run deploy -- --secrets-file .dev.vars
 ```
 
 This explicitly uploads the secrets-only dotenv file as runtime secrets and
-applies the configured Durable Object migration. Ordinary `npm run deploy` does
-not upload local `.dev.vars` automatically. Secrets omitted from an upload are
-preserved from the previous Worker version.
+applies the configured Durable Object migration. `npm run deploy` also forwards
+supported nonempty process/Build settings, but does not upload a local
+`.dev.vars` automatically without `--secrets-file`. Secrets omitted from an
+upload are preserved from the previous Worker version. JSON secret files are
+also supported. Use `npm run deploy -- --dry-run` for a compile-only check.
 [Cloudflare secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
 
 To update one credential through a secure prompt or the dashboard:
@@ -302,10 +339,11 @@ sync against the public origin.
 ### Workers Builds dashboard
 
 Optional Git integration can use the repository root, an empty **Build command**
-and **Deploy command** `npm run deploy:ci`. Wrangler bundles TypeScript itself.
+and **Deploy command** `npm run deploy`. `npm run deploy:ci` remains a
+compatibility alias for the same command. Wrangler bundles TypeScript itself.
 Use the Node version in `.nvmrc`; leave the repository's bundle settings intact.
 
-The CI command copies only supported CodeStats settings from the build
+The deployment command copies only supported CodeStats settings from the build
 environment into the deployed Worker. Configure provider credentials under
 **Build settings** as Secrets: `GITHUB_TOKEN`, `WAKATIME_TOKEN`,
 `OPENROUTER_API_KEY`, `ANTHROPIC_ADMIN_KEY`, and optionally a manually managed
@@ -315,14 +353,42 @@ and unrelated environment values are never forwarded as Worker bindings.
 
 Provider secrets use a temporary private JSON file and Wrangler's
 `--secrets-file` option; values never appear in CLI arguments, and the file is
-removed when deployment finishes or fails. Missing/empty build values preserve
-existing runtime secrets. The command uses `--keep-vars` to retain dashboard
-Variables. Directly managed runtime Secrets under the deployed Worker's
+removed when deployment finishes or fails. Missing/empty secret values preserve
+existing runtime secrets. The command uses `--keep-vars`; this retains other
+dashboard Variables but does not ignore explicitly supplied config or CLI values.
+Directly managed runtime Secrets under the deployed Worker's
 **Settings → Variables and Secrets** remain supported. Plain `npx wrangler deploy`
 does not perform this build-to-runtime forwarding. Inspect `/build` and
 `/api/stats` after saving/deploying changes.
 
-`keep_vars: true` preserves dashboard Variables on later Wrangler deployments.
+### Build and runtime settings
+
+Build settings are process input to the deployment job. Worker runtime bindings
+are what the deployed service reads through `env`. They are different scopes;
+a credential stored only in Build settings does not become a Worker Secret by
+itself. The unified `npm run deploy` command performs this explicit transfer:
+
+| Input | Deployed result |
+| --- | --- |
+| Allowlisted public process/Build settings, such as `GITHUB_USERNAME` | Wrangler `--var` runtime Variables |
+| Explicitly empty GitHub/WakaTime/Codex usernames | Empty runtime Variables; do not silently restore the template account |
+| Allowlisted nonempty provider secrets | Temporary private JSON passed with `--secrets-file`, creating runtime Secrets |
+| Explicit `--secrets-file` values | Merged in memory; a nonempty file value wins over the same process/Build secret |
+| Missing/empty secret values | Omitted from the upload; existing runtime Secrets remain |
+| Cloudflare Build authentication and unrelated environment variables | Used only by the deployment process; never made Worker bindings |
+
+Public process/Build values override the same keys in `wrangler.jsonc`; explicit
+Wrangler config values may still replace the same runtime Variable on a later
+deploy. `--keep-vars` is not a promise that every existing value wins. Secret
+values never appear in command arguments or the repository.
+
+Choose one maintained source for each setting. If a credential exists in Build
+settings, updating only its runtime copy is insufficient: the next deployment
+will reapply the Build value. Update that Build Secret as well, or remove the
+Build copy and manage the credential exclusively in runtime **Variables and
+Secrets**. Apply the same rule to public settings such as usernames. This
+avoids the repeated “configured in Build, missing or outdated at runtime” case.
+
 Variables and Secrets are both read through `env`, but Secrets hide credential
 values. After a previously missing GitHub token is added, the next request
 retries that configuration error; ordinary failures keep their normal cooldown.
