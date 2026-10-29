@@ -162,6 +162,11 @@ stores private and preserve the runtime's chosen store across restarts. Tests
 use isolated stores and must not clear the live preview cache. Production
 Worker data is separate from both local directories.
 
+The first automatic Codex Worker sync privately saves its bridge key in
+`.data/codex-sync.json` (or `CODESTATS_DATA_DIR`). This ignored key file is local
+execution state, not a fixture or public report. Preserve it for later syncs;
+never print, upload as statistics, or commit its contents.
+
 Samples contain placeholders only. Never read credentials back into reports,
 URLs, logs or screenshots, and do not print or hash tokens to prove configuration.
 Use `/health` booleans and native source statuses for that distinction. Codex sync

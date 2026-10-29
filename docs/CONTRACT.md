@@ -39,6 +39,10 @@ and reporting periods; their counts are not combined into a cross-provider total
   32 characters, regardless of how the integration was enabled.
   Imports are serialized and older/equal observations are rejected. Visiting
   the card never gives an old imported observation a new success timestamp.
+  The explicit local sync command can generate and privately save its bridge
+  secret, install it on the configured HTTPS Worker through Wrangler standard
+  input, then reuse it on later runs. An explicit shared token bypasses this
+  setup and is required for Node/HTTP destinations.
   `CODEX_USERNAME` is a bare public ID that enables the configured integration
   and supplies its fixed-host profile link; it never switches the local account.
   Public ID requests have unavailable usage and cannot read owner CLI/imports.

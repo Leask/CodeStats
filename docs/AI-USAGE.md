@@ -14,7 +14,7 @@ differ, and the same activity may appear in more than one system.
 | Source | Enable it with | Reporting period |
 | --- | --- | --- |
 | Codex on Node | A configured `CODEX_USERNAME` or `CODEX_SYNC_TOKEN`, plus the service user's existing Codex CLI login | Official account/workspace lifetime summary |
-| Codex on a Worker | A dedicated `CODEX_SYNC_TOKEN` and a local aggregate sync | Lifetime summary as of the last imported observation |
+| Codex on a Worker | Run the local sync command; it can install its own dedicated `CODEX_SYNC_TOKEN` | Lifetime summary as of the last imported observation |
 | OpenRouter | `OPENROUTER_API_KEY` containing a Management key | Last 367 completed UTC days, or a shorter configured interval |
 
 Codex auto-enables from its configured ID or sync secret. No extra flag is
@@ -93,19 +93,42 @@ sync secret or explicit enable flag alone does not establish that access.
 
 ### Cloudflare Worker
 
-A Worker cannot run the local Codex CLI. Use an aggregate-only bridge:
+A Worker cannot run the local Codex CLI. Deploy the current CodeStats version,
+then run its aggregate-only bridge from a machine already signed in to Codex
+and Wrangler (`npx wrangler login`). The local `wrangler.jsonc` must name the
+Worker serving the target HTTPS origin. Optionally set `CODEX_USERNAME` in that
+Worker's runtime Variables for its public profile link.
 
-1. Optionally set `CODEX_USERNAME` to your bare public ID in runtime Variables.
-2. Generate a separate random secret of at least 32 characters, for example with
-   `openssl rand -hex 32`.
-3. Save it as `CODEX_SYNC_TOKEN` both in the Worker's **Secrets** and in the
-   sync machine's ignored `.env`. This automatically enables Codex imports;
-   no separate enable flag is needed. Do not reuse a provider credential.
-4. On a machine already signed in to Codex, run:
+There is one sync command and no separate initialization step:
 
 ```sh
 npm run sync:codex -- https://your-worker.example
 ```
+
+When `CODEX_SYNC_TOKEN` is omitted, the command reads local Codex usage and
+verifies the target belongs to the configured Worker and Cloudflare account.
+Only then does it generate a 32-byte random key (64 hexadecimal characters). It saves
+it in ignored `.data/codex-sync.json` with private file permissions, then passes
+it to the configured Worker's `wrangler secret put CODEX_SYNC_TOKEN` through
+standard input. It never places the value in command arguments or logs.
+Installing the Secret updates the Worker once and automatically enables imports.
+Later syncs reuse the saved key without redeploying. If installation fails, the
+same generated key remains available for the next run of the command.
+
+Preserve the private sync-key file between runs. If `CODESTATS_DATA_DIR` is set,
+the file lives there instead. The saved key is bound to its original origin;
+for a different destination, use an explicitly configured shared token rather
+than repurposing the saved key.
+
+Automatic verification accepts its live `workers.dev` address or an enabled
+production Custom Domain bound to that Worker. Unsupported proxy/route targets
+require an explicitly configured token; an unverified target never changes a secret.
+
+**Manual/Node imports:** an explicitly provided `CODEX_SYNC_TOKEN` is used as
+configured and skips automatic Worker setup. Put the same independent secret
+of at least 32 characters on the destination and in the local sync environment.
+This is required for Node-server and HTTP loopback targets: Wrangler cannot
+change a Node process's configuration. Never reuse a provider login credential.
 
 The command reads the summary locally and sends only five numeric/null fields
 and the observation time to `POST /api/usage/codex`. The bridge secret goes in an
@@ -193,9 +216,11 @@ Official references: [analytics query](https://openrouter.ai/docs/api/api-refere
 For OpenRouter HTTP403, check that the configured credential is a **Management
 key**, not an inference key. For missing Worker credentials, verify runtime
 Secrets rather than build-only secrets. For Codex on Node, verify the service
-user's local Codex login; for a Worker, verify the bridge secret and last
-successful sync, and check that an explicit `CODEX_USAGE_ENABLED=false` is not
-disabling it. Never paste credentials into the card URL or public logs.
+user's local Codex login; for a Worker, verify the local Wrangler login, matching
+Worker name/origin and last successful sync. Keep a generated key after an
+installation failure and rerun the same command. Check that an explicit
+`CODEX_USAGE_ENABLED=false` is not disabling it. Never paste credentials into
+the card URL or public logs.
 
 Default freshness is six hours and failed refreshes use a fifteen-minute retry
 cooldown. Upstream changes and GitHub's image cache may delay visible updates.

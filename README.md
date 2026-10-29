@@ -105,8 +105,8 @@ access. `CODEX_USAGE_ENABLED=false` explicitly disables it.
 
 Edit `wrangler.jsonc`: choose your Worker `name`, and set `vars.GITHUB_USERNAME`
 and `vars.WAKATIME_USERNAME`. Keep the existing Durable Object binding and
-migration. To include Codex, configure the dedicated `CODEX_SYNC_TOKEN` Secret
-and follow the aggregate sync setup below. No separate enable flag is required.
+migration. To include Codex, follow the one-command aggregate sync below;
+it can configure its own dedicated sync secret. No separate enable flag is required.
 `DEFAULT_RANGE` may be omitted; its default is `all_time` on both runtimes.
 
 ```sh
@@ -130,14 +130,19 @@ Wrangler creates the configured SQLite Durable Object through its migration;
 no separate KV, D1 database, cron or GitHub Actions workflow is needed.
 See [Cloudflare deployment](docs/DEPLOYMENT.md#cloudflare-workers).
 
-Workers cannot run your local Codex CLI. Configure a dedicated `CODEX_SYNC_TOKEN`
-on the Worker and local sync machine, then send the account summary from a
-machine already signed in to Codex:
+Workers cannot run your local Codex CLI. After deploying the current version,
+run this from a machine already signed in to Codex and Wrangler. Its local
+`wrangler.jsonc` must name the Worker serving the destination origin:
 
 ```sh
 npm run sync:codex -- https://your-worker.example
 ```
 
+On the first successful local read, the command generates a private sync key,
+saves it in ignored `.data/codex-sync.json`, and installs it as the Worker's
+`CODEX_SYNC_TOKEN` Secret through Wrangler. Later syncs reuse it without another
+deployment; no separate initialization command is needed. An explicitly shared
+`CODEX_SYNC_TOKEN` remains supported for manual and Node-server imports.
 This transfers only the numeric/null summary and observation time, not your
 Codex credentials or conversations. It is a manual command and creates no timer.
 See [the full Codex bridge setup](docs/AI-USAGE.md#cloudflare-worker).

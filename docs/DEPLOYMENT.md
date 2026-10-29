@@ -110,19 +110,33 @@ ID or sync secret. For local CLI collection without either setting, opt in with
   `codex app-server --stdio` and reads `account/usage/read`; it does not copy
   login credentials or inspect chat history. API-key-only or third-party-provider
   logins may not provide this account summary.
-- **Worker:** the edge runtime cannot start your desktop CLI. Configure
-  `CODEX_SYNC_TOKEN` as a runtime Secret; this also enables the integration. Generate a
-  separate random secret of at least 32 characters, put the same secret in the
-  local sync environment, and run the bridge from the signed-in computer:
+- **Worker:** the edge runtime cannot start your desktop CLI. Deploy the current
+  version, then run the bridge from a computer signed in to both Codex and
+  Wrangler. Its local `wrangler.jsonc` must name the Worker serving the target
+  HTTPS origin:
 
   ```sh
   npm run sync:codex -- https://stats.example.com
   ```
 
+  After reading local usage, the command verifies the destination through
+  Cloudflare's authenticated Worker/domain metadata. It then generates a 32-byte random secret, saves it
+  privately in ignored `.data/codex-sync.json`, and installs `CODEX_SYNC_TOKEN`
+  on that Worker through Wrangler's standard input. Later syncs reuse the key
+  without redeploying. A failed install retains the generated key for a retry
+  of the same command. No separate initialization command is required.
+
   This builds the Node helper, reads the account summary locally and posts only
   validated numeric aggregates plus their observation time to
   `/api/usage/codex`. The destination must be an HTTPS origin; HTTP is accepted
   only for loopback development. No Codex login token is sent to the Worker.
+
+For an existing manually managed setup, provide `CODEX_SYNC_TOKEN` explicitly
+and keep the same secret on the destination; the helper uses it without
+changing the Worker. Node-server and HTTP development targets require this
+explicit shared-token setup because Wrangler cannot configure their process
+environment. A custom `CODESTATS_DATA_DIR` also selects the private sync-key
+directory; preserve it when repeating syncs.
 
 The bridge is manual; CodeStats creates no timer or scheduler. Repeat the sync
 when you want a new observation. Opening the card does not refresh an imported
@@ -200,9 +214,10 @@ workload; local validation is not a production-capacity test.
 ### Configure and preview
 
 In `wrangler.jsonc`, replace the Worker `name`, `vars.GITHUB_USERNAME` and
-`vars.WAKATIME_USERNAME`. For Codex imports, configure the `CODEX_SYNC_TOKEN`
-Secret; the optional `CODEX_USERNAME` belongs in `vars`. No separate enable
-flag is required. `DEFAULT_RANGE` may be omitted and defaults to `all_time`.
+`vars.WAKATIME_USERNAME`. For Codex imports, run the bridge after deployment to
+create/install its sync Secret; the optional `CODEX_USERNAME` belongs in `vars`.
+No separate enable flag is required. `DEFAULT_RANGE` may be omitted and defaults
+to `all_time`.
 Set nonsecret options such as `OPENROUTER_USAGE_SINCE` in `vars` only when you
 want to override the defaults.
 
@@ -226,7 +241,8 @@ Neither sample contains real credentials.
 Local Worker state is in `.wrangler/state`, separate from Node's `.data/`.
 Neither cache is uploaded to production. Run only one local service on port
 8791 at a time. Open `/build`; to see Worker Codex data, import an observation
-with the local bridge and a matching sync secret.
+with the local bridge and an explicitly shared sync secret. Automatic secret
+setup is for deployed HTTPS Workers, not the local Worker preview.
 
 ### First deployment
 
@@ -248,6 +264,7 @@ npx wrangler secret put GITHUB_TOKEN
 # Only for the services you enabled:
 npx wrangler secret put WAKATIME_TOKEN
 npx wrangler secret put OPENROUTER_API_KEY
+# Optional manual Codex setup; sync:codex normally creates/installs its own key:
 npx wrangler secret put CODEX_SYNC_TOKEN
 ```
 
@@ -333,7 +350,7 @@ unless a row says otherwise.
 | `DEFAULT_RANGE` | Optional; `all_time` | Initial WakaTime range only; may be omitted on either runtime |
 | `CODEX_USAGE_ENABLED` | Optional override | Omit to auto-enable with a Codex ID/sync secret; `false` disables it, `true` enables local CLI collection without an ID/secret |
 | `CODEX_USERNAME` | Optional bare ID | Enables the configured integration and provides its canonical profile link; does not grant account access |
-| `CODEX_SYNC_TOKEN` | Optional independent secret, at least 32 characters | Auto-enable and authorize `/api/usage/codex` imports; not a Codex login token |
+| `CODEX_SYNC_TOKEN` | Generated/installed by Worker sync; optional manual override of at least 32 characters | Auto-enable and authorize `/api/usage/codex` imports; explicit shared value required for Node/HTTP imports |
 | `OPENROUTER_API_KEY` | Optional Management key | Enable account analytics |
 | `OPENROUTER_USAGE_SINCE` | Last 367 completed UTC days | Optional shorter `YYYY-MM-DD` start |
 | `FRESH_SECONDS` | `21600` | Six-hour freshness interval; minimum 60 seconds |
@@ -412,7 +429,8 @@ Last-good data still requires the application and its storage to be reachable.
 | WakaTime unavailable or calculating | Exact published range, owner-match and OAuth `email` plus read-stats permissions; no period substitution |
 | Public ID has no Codex/OpenRouter usage | Expected: Codex usage requires account access; OpenRouter has no anonymous username usage API |
 | Codex unavailable on Node | CLI on the service user's `PATH`, supported account login and usage endpoint |
-| Codex unavailable/stale on Worker | Enable flag, matching sync secret, one successful local sync, then original observation age |
+| Codex unavailable/stale on Worker | Current version deployed, local Codex/Wrangler login, correct Worker in `wrangler.jsonc`, one successful sync; remove an explicit disable override |
+| Automatic Codex key install fails | Keep its private saved key, verify Wrangler login/configured Worker, then retry the same sync command |
 | Codex import rejected | Newer observation, HTTPS origin, matching separate secret of at least 32 characters |
 | OpenRouter inference works but usage fails | Use a Management key; ordinary inference credentials are insufficient |
 | OpenRouter differs from website lifetime total | The card uses its labeled completed-day analytics interval, not the private profile page |

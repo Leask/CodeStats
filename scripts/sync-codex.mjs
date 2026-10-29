@@ -1,5 +1,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { syncToken, SyncTokenError } from './codex-sync-token.mjs';
+import { WorkerOriginError } from './verify-worker-origin.mjs';
 
 class SyncError extends Error {}
 
@@ -27,10 +29,6 @@ async function main() {
         throw new SyncError('Usage: node --env-file=.env scripts/sync-codex.mjs <origin>');
     }
     const target = destination(process.argv[2]);
-    const token = process.env.CODEX_SYNC_TOKEN;
-    if (!token || /[\r\n]/.test(token)) {
-        throw new SyncError('Set CODEX_SYNC_TOKEN in a private environment file.');
-    }
     let reading;
     try {
         const { readCodexUsage } = await import('../dist/node.mjs');
@@ -39,6 +37,7 @@ async function main() {
         throw new SyncError('Could not read Codex usage. Build the Node entry point '
             + 'and verify your existing local Codex-service login.');
     }
+    const token = await syncToken(target.origin);
     let response;
     try {
         response = await fetch(target, {
@@ -64,7 +63,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     try {
         await main();
     } catch (error) {
-        console.error(error instanceof SyncError ? error.message
+        console.error(error instanceof SyncError || error instanceof SyncTokenError
+            || error instanceof WorkerOriginError ? error.message
             : 'Codex usage sync failed. No diagnostic or response body was printed.');
         process.exitCode = 1;
     }
