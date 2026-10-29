@@ -13,15 +13,15 @@ differ, and the same activity may appear in more than one system.
 
 | Source | Enable it with | Reporting period |
 | --- | --- | --- |
-| Codex on Node | A configured `CODEX_USERNAME` or `CODEX_SYNC_TOKEN`, plus the service user's existing Codex CLI login | Official account/workspace lifetime summary |
-| Codex on a Worker | Run the local sync command; it can install its own dedicated `CODEX_SYNC_TOKEN` | Lifetime summary as of the last imported observation |
+| Codex on Node | `CODEX_USERNAME` or `CODEX_USAGE_ENABLED=true`, plus the service user's existing Codex CLI login | Official account/workspace lifetime summary |
+| Codex on a Worker | Run the local sync command; it automatically manages its private sync key | Lifetime summary as of the last imported observation |
 | OpenRouter | `OPENROUTER_API_KEY` containing a Management key | Last 367 completed UTC days, or a shorter configured interval |
 | Anthropic API | `ANTHROPIC_ADMIN_KEY` containing an organization Admin key | Last 30 completed UTC days, or the configured UTC start date |
 
-Codex auto-enables from its configured ID or sync secret. No extra flag is
+Codex auto-enables from its configured ID or automatically installed sync key. No extra flag is
 required. `CODEX_USAGE_ENABLED=false` explicitly disables it, including when
 those settings are present. `true` remains available for Node users who want
-local CLI collection without an ID or sync secret. Remove an old sample's
+local CLI collection without an ID. Remove an old sample's
 explicit `false` line when switching to automatic enabling.
 
 Usage credentials apply only to the configured profile. `sources=codex`,
@@ -82,7 +82,7 @@ will run CodeStats. Set this in the ignored Node environment file:
 ```dotenv
 # Enables the integration and adds a public profile link:
 CODEX_USERNAME=your-id
-# Optional override for collection without a configured ID/sync secret:
+# Optional override for collection without a configured ID:
 # CODEX_USAGE_ENABLED=true
 ```
 
@@ -100,41 +100,44 @@ and Wrangler (`npx wrangler login`). The local `wrangler.jsonc` must name the
 Worker serving the target HTTPS origin. Optionally set `CODEX_USERNAME` in that
 Worker's runtime Variables for its public profile link.
 
-There is one sync command and no separate initialization step:
+There is one sync command and no token field or separate initialization step.
+Do not put `CODEX_SYNC_TOKEN` in deployment forms, Build settings or secret files:
 
 ```sh
 npm run sync:codex -- https://your-worker.example
 ```
 
-When `CODEX_SYNC_TOKEN` is omitted, the command reads local Codex usage and
-verifies the target belongs to the configured Worker and Cloudflare account.
+The command reads local Codex usage and verifies the target belongs to the
+configured Worker and Cloudflare account.
 Only then does it generate a 32-byte random key (64 hexadecimal characters). It saves
 it in ignored `.data/codex-sync.json` with private file permissions, then passes
 it to the configured Worker's `wrangler secret put CODEX_SYNC_TOKEN` through
 standard input. It never places the value in command arguments or logs.
 Installing the Secret updates the Worker once and automatically enables imports.
-Later syncs reuse the saved key without redeploying. If installation fails, the
+Later syncs reuse the saved key without redeploying. Deployment commands ignore
+legacy sync-token inputs and preserve the installed key. If installation fails, the
 same generated key remains available for the next run of the command.
 
 Preserve the private sync-key file between runs. If `CODESTATS_DATA_DIR` is set,
 the file lives there instead. The saved key is bound to its original origin;
-for a different destination, use an explicitly configured shared token rather
+for a different destination, use a separate private `CODESTATS_DATA_DIR` rather
 than repurposing the saved key.
 
 Automatic verification accepts its live `workers.dev` address or an enabled
-production Custom Domain bound to that Worker. Unsupported proxy/route targets
-require an explicitly configured token; an unverified target never changes a secret.
+production Custom Domain bound to that Worker. Use one of these verified
+origins for automatic setup; an unverified target never changes a secret.
 
-**Manual/Node imports:** an explicitly provided `CODEX_SYNC_TOKEN` is used as
-configured and skips automatic Worker setup. Put the same independent secret
-of at least 32 characters on the destination and in the local sync environment.
-This is required for Node-server and HTTP loopback targets: Wrangler cannot
-change a Node process's configuration. Never reuse a provider login credential.
+**Advanced Node/loopback imports:** Node normally reads its own local Codex
+login and needs no bridge key. Existing external-import integrations can still
+provide the same independent `CODEX_SYNC_TOKEN` (at least 32 characters) to the
+Node destination and sync environment. Wrangler cannot configure a Node process.
+This compatibility path is separate from the automatic Worker setup; never use
+a provider login credential as the bridge key.
 
 The command reads the summary locally and sends only five numeric/null fields
 and the observation time to `POST /api/usage/codex`. The bridge secret goes in an
-Authorization header, never in the URL. The endpoint is disabled unless
-explicitly configured, and rejects unauthenticated, oversized, invalid or older
+Authorization header, never in the URL. The endpoint is disabled until its
+sync key is installed, and rejects unauthenticated, oversized, invalid or older
 observations. No timer or daemon is installed; use your existing maintenance
 workflow when another sync is wanted.
 

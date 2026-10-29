@@ -96,7 +96,7 @@ silently substitute another period when a range is unavailable or recalculating.
 
 ### Codex
 
-Codex auto-enables when `CODEX_USERNAME` or `CODEX_SYNC_TOKEN` is configured.
+Codex auto-enables from `CODEX_USERNAME` or the automatically installed sync key.
 Set `CODEX_USERNAME` to a bare ID such as `your-id`; CodeStats builds
 `https://chatgpt.com/u/your-id` itself. A public ID/link is not an authorization
 grant. Anonymous profile pages require sign-in for usage, so `?codex=ID` displays
@@ -125,19 +125,19 @@ ID or sync secret. For local CLI collection without either setting, opt in with
   privately in ignored `.data/codex-sync.json`, and installs `CODEX_SYNC_TOKEN`
   on that Worker through Wrangler's standard input. Later syncs reuse the key
   without redeploying. A failed install retains the generated key for a retry
-  of the same command. No separate initialization command is required.
+  of the same command. No token entry or separate initialization command is
+  required. Do not add the program-managed sync key to Build settings or secret
+  files; later deployment commands preserve it.
 
   This builds the Node helper, reads the account summary locally and posts only
   validated numeric aggregates plus their observation time to
   `/api/usage/codex`. The destination must be an HTTPS origin; HTTP is accepted
   only for loopback development. No Codex login token is sent to the Worker.
 
-For an existing manually managed setup, provide `CODEX_SYNC_TOKEN` explicitly
-and keep the same secret on the destination; the helper uses it without
-changing the Worker. Node-server and HTTP development targets require this
-explicit shared-token setup because Wrangler cannot configure their process
-environment. A custom `CODESTATS_DATA_DIR` also selects the private sync-key
-directory; preserve it when repeating syncs.
+A custom `CODESTATS_DATA_DIR` also selects the private sync-key directory;
+preserve it when repeating syncs. Node normally reads its own local Codex login
+and needs no bridge key. Existing advanced Node/loopback import integrations
+remain compatible as described in [usage details](AI-USAGE.md#cloudflare-worker).
 
 The bridge is manual; CodeStats creates no timer or scheduler. Repeat the sync
 when you want a new observation. Opening the card does not refresh an imported
@@ -272,7 +272,8 @@ flow](https://developers.cloudflare.com/workers/platform/deploy-buttons/).
 
 In `wrangler.jsonc`, replace the Worker `name`, `vars.GITHUB_USERNAME` and
 `vars.WAKATIME_USERNAME`. For Codex imports, run the bridge after deployment to
-create/install its sync Secret; the optional `CODEX_USERNAME` belongs in `vars`.
+automatically create/install its sync key; the optional `CODEX_USERNAME` belongs
+in `vars`. The sync key is not a deployment input.
 No separate enable flag is required. `DEFAULT_RANGE` may be omitted and defaults
 to `all_time`.
 Set nonsecret options such as `OPENROUTER_USAGE_SINCE` in `vars` only when you
@@ -291,15 +292,17 @@ npm run dev:worker
 ```
 
 Use `.dev.vars` for **secrets only**: GitHub token, optional WakaTime OAuth token,
-OpenRouter Management key, Anthropic Admin key, and optional Codex sync secret. Usernames, enable
-flags and reporting dates belong in Wrangler `vars`, not this upload file.
+OpenRouter Management key and Anthropic Admin key. The Codex bridge manages its
+own sync key. Usernames, enable flags and reporting dates belong in Wrangler
+`vars`, not this upload file.
 Neither sample contains real credentials.
 
 Local Worker state is in `.wrangler/state`, separate from Node's `.data/`.
 Neither cache is uploaded to production. Run only one local service on port
-8791 at a time. Open `/build`; to see Worker Codex data, import an observation
-with the local bridge and an explicitly shared sync secret. Automatic secret
-setup is for deployed HTTPS Workers, not the local Worker preview.
+8791 at a time. Open `/build`; use the Node preview for local Codex CLI data.
+Automatic bridge setup targets deployed HTTPS Workers. Advanced local Worker
+imports retain their existing shared-key compatibility path; see
+[usage details](AI-USAGE.md#cloudflare-worker).
 
 ### First deployment
 
@@ -324,17 +327,15 @@ npx wrangler secret put GITHUB_TOKEN
 npx wrangler secret put WAKATIME_TOKEN
 npx wrangler secret put OPENROUTER_API_KEY
 npx wrangler secret put ANTHROPIC_ADMIN_KEY
-# Optional manual Codex setup; sync:codex normally creates/installs its own key:
-npx wrangler secret put CODEX_SYNC_TOKEN
 ```
 
 These commands update the deployed Worker, not just local preview. Never put
 credential values in command arguments. Use the public Workers URL printed at
 deploy time or your custom domain in the README generator. Keep the Worker
 identity, profile usernames, binding and migration history stable to retain the
-cache. A configured sync secret automatically enables Codex imports unless
-`CODEX_USAGE_ENABLED=false` overrides it. After deployment, run the local Codex
-sync against the public origin.
+cache. The Codex sync command automatically installs its dedicated key and
+enables imports unless `CODEX_USAGE_ENABLED=false` overrides it. After
+deployment, run the local Codex sync against the public origin.
 
 ### Workers Builds dashboard
 
@@ -346,8 +347,8 @@ Use the Node version in `.nvmrc`; leave the repository's bundle settings intact.
 The deployment command copies only supported CodeStats settings from the build
 environment into the deployed Worker. Configure provider credentials under
 **Build settings** as Secrets: `GITHUB_TOKEN`, `WAKATIME_TOKEN`,
-`OPENROUTER_API_KEY`, `ANTHROPIC_ADMIN_KEY`, and optionally a manually managed
-`CODEX_SYNC_TOKEN`. Public settings such as `CODEX_USERNAME` and
+`OPENROUTER_API_KEY` and `ANTHROPIC_ADMIN_KEY`. The Codex sync key is managed
+automatically, not entered here. Public settings such as `CODEX_USERNAME` and
 `WAKATIME_USERNAME` are passed as runtime Variables. Cloudflare build-auth tokens
 and unrelated environment values are never forwarded as Worker bindings.
 
@@ -374,7 +375,8 @@ itself. The unified `npm run deploy` command performs this explicit transfer:
 | Explicitly empty GitHub/WakaTime/Codex usernames | Empty runtime Variables; do not silently restore the template account |
 | Allowlisted nonempty provider secrets | Temporary private JSON passed with `--secrets-file`, creating runtime Secrets |
 | Explicit `--secrets-file` values | Merged in memory; a nonempty file value wins over the same process/Build secret |
-| Missing/empty secret values | Omitted from the upload; existing runtime Secrets remain |
+| Missing/empty provider secret values | Omitted from the upload; existing runtime Secrets remain |
+| Legacy `CODEX_SYNC_TOKEN` in Build settings or explicit secret files | Ignored; the sync program owns this key and deployment preserves its runtime Secret |
 | Cloudflare Build authentication and unrelated environment variables | Used only by the deployment process; never made Worker bindings |
 
 Public process/Build values override the same keys in `wrangler.jsonc`; explicit
@@ -451,7 +453,6 @@ unless a row says otherwise.
 | `DEFAULT_RANGE` | Optional; `all_time` | Initial WakaTime range only; may be omitted on either runtime |
 | `CODEX_USAGE_ENABLED` | Optional override | Omit to auto-enable with a Codex ID/sync secret; `false` disables it, `true` enables local CLI collection without an ID/secret |
 | `CODEX_USERNAME` | Optional bare ID | Enables the configured integration and provides its canonical profile link; does not grant account access |
-| `CODEX_SYNC_TOKEN` | Generated/installed by Worker sync; optional manual override of at least 32 characters | Auto-enable and authorize `/api/usage/codex` imports; explicit shared value required for Node/HTTP imports |
 | `OPENROUTER_API_KEY` | Optional Management key | Enable account analytics |
 | `OPENROUTER_USAGE_SINCE` | Last 367 completed UTC days | Optional shorter `YYYY-MM-DD` start |
 | `ANTHROPIC_ADMIN_KEY` | Optional organization Admin key | Auto-enable organization API usage; not a Claude Pro/Max subscription |

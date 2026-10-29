@@ -87,7 +87,7 @@ not in the builder, image URLs or README.
 | --- | --- | --- |
 | GitHub | Username alone for public aggregates; add the account's `GITHUB_TOKEN` for full coverage | [Permissions](docs/DEPLOYMENT.md#credentials) |
 | WakaTime | Published username/range; optional owner OAuth token for fallback or token-only setup | [Permissions](docs/DEPLOYMENT.md#credentials) |
-| Codex | `CODEX_USERNAME` or sync secret auto-enables it; local login/Worker aggregate sync supplies usage | [Codex setup](docs/AI-USAGE.md#codex) |
+| Codex | Local Codex CLI login; run the aggregate sync for a Worker. The sync key is managed automatically | [Codex setup](docs/AI-USAGE.md#codex) |
 | OpenRouter | `OPENROUTER_API_KEY` containing a **Management key** | [OpenRouter setup](docs/AI-USAGE.md#openrouter) |
 | Anthropic API | `ANTHROPIC_ADMIN_KEY` containing an **organization Admin key** | [Anthropic setup](docs/AI-USAGE.md#anthropic-api) |
 
@@ -126,9 +126,10 @@ redeploying, and use an HTTPS reverse proxy for a public service.
 See [Node hosting](docs/DEPLOYMENT.md#nodejs).
 
 For local Codex statistics, the service account running Node must already be
-signed in to the Codex CLI. A configured `CODEX_USERNAME` or `CODEX_SYNC_TOKEN`
-automatically enables the integration; it does not sign in or provide account
-access. `CODEX_USAGE_ENABLED=false` explicitly disables it.
+signed in to the Codex CLI. Set `CODEX_USERNAME` to enable the integration and
+its public profile link, or `CODEX_USAGE_ENABLED=true` for local collection
+without an ID. These settings do not provide account access.
+`CODEX_USAGE_ENABLED=false` explicitly disables it.
 [Codex setup](docs/AI-USAGE.md#codex).
 
 ### Cloudflare Workers
@@ -136,7 +137,8 @@ access. `CODEX_USAGE_ENABLED=false` explicitly disables it.
 Edit `wrangler.jsonc`: choose your Worker `name`, and set `vars.GITHUB_USERNAME`
 and `vars.WAKATIME_USERNAME`. Keep the existing Durable Object binding and
 migration. To include Codex, follow the one-command aggregate sync below;
-it can configure its own dedicated sync secret. No separate enable flag is required.
+it automatically manages its dedicated sync key. Do not fill in a sync token
+in the deployment form or Build settings. No separate enable flag is required.
 `DEFAULT_RANGE` may be omitted; its default is `all_time` on both runtimes.
 
 ```sh
@@ -172,8 +174,9 @@ npm run sync:codex -- https://your-worker.example
 On the first successful local read, the command generates a private sync key,
 saves it in ignored `.data/codex-sync.json`, and installs it as the Worker's
 `CODEX_SYNC_TOKEN` Secret through Wrangler. Later syncs reuse it without another
-deployment; no separate initialization command is needed. An explicitly shared
-`CODEX_SYNC_TOKEN` remains supported for manual and Node-server imports.
+deployment. Deployment settings never overwrite this managed key. No token
+entry or separate initialization command is needed; preserve the private file
+between syncs.
 This transfers only the numeric/null summary and observation time, not your
 Codex credentials or conversations. It is a manual command and creates no timer.
 See [the full Codex bridge setup](docs/AI-USAGE.md#cloudflare-worker).

@@ -13,12 +13,8 @@ GITHUB_TOKEN=
 # Scopes: email plus read_stats.languages (or read_stats).
 WAKATIME_TOKEN=
 
-# Codex auto-enables when CODEX_SYNC_TOKEN or CODEX_USERNAME is configured.
-# Optional CODEX_USAGE_ENABLED=false in Wrangler vars overrides auto-enabling.
-# Optional CODEX_USERNAME in vars is a bare public ID, never a profile URL.
-# Normally sync:codex creates/installs the Worker secret after deployment.
-# Optional manual override: share a separate >=32-character secret with the helper.
-CODEX_SYNC_TOKEN=
+# Codex needs no secret input. After deployment, run npm run sync:codex locally;
+# the helper creates, saves and installs its own private sync key automatically.
 
 # OpenRouter Management key; an ordinary model-inference key is insufficient.
 OPENROUTER_API_KEY=

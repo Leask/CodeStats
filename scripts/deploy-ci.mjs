@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 
 const secretNames = ['GITHUB_TOKEN', 'WAKATIME_TOKEN', 'OPENROUTER_API_KEY',
-    'CODEX_SYNC_TOKEN', 'ANTHROPIC_ADMIN_KEY'];
+    'ANTHROPIC_ADMIN_KEY'];
 const variableNames = ['GITHUB_USERNAME', 'WAKATIME_USERNAME', 'CODEX_USERNAME',
     'GITHUB_VISIBILITY', 'GITHUB_REPOSITORY_AFFILIATIONS', 'GITHUB_INCLUDE_FORKS',
     'GITHUB_INCLUDE_OWN_CONTRIBUTIONS', 'DEFAULT_RANGE', 'FRESH_SECONDS',
@@ -45,11 +45,13 @@ async function fileSecrets(filename) {
     }
     if (!data || typeof data !== 'object' || Array.isArray(data)
         || Object.entries(data).some(([name, value]) =>
-            !secretNames.includes(name) || typeof value !== 'string')) {
+            (!secretNames.includes(name) && name !== 'CODEX_SYNC_TOKEN')
+                || typeof value !== 'string')) {
         throw new Error('The deployment secrets file must contain only named provider secrets.');
     }
-    return Object.fromEntries(Object.entries(data)
-        .flatMap(([name, value]) => value.trim() ? [[name, value.trim()]] : []));
+    // Accept old files, but only the sync helper may install its managed key.
+    return Object.fromEntries(Object.entries(data).flatMap(([name, value]) =>
+        secretNames.includes(name) && value.trim() ? [[name, value.trim()]] : []));
 }
 
 /** Only named service settings become bindings; build authentication stays local. */
@@ -62,6 +64,8 @@ export async function deployCi(options = {}) {
         return value ? [[name, value]] : [];
     }));
     const secrets = { ...values(secretNames), ...await fileSecrets(filename) };
+    const childEnvironment = { ...environment, WRANGLER_LOG: 'info' };
+    delete childEnvironment.CODEX_SYNC_TOKEN;
     const variables = values(variableNames);
     // Clearing a username is intentional; unlike an empty secret, it must
     // override the template/default account rather than silently re-enable it.
@@ -90,7 +94,7 @@ export async function deployCi(options = {}) {
         }
         await new Promise((accept, reject) => {
             const child = start(process.execPath, args, {
-                cwd: project, env: { ...environment, WRANGLER_LOG: 'info' },
+                cwd: project, env: childEnvironment,
                 stdio: ['ignore', 'inherit', 'inherit'],
             });
             const failed = () => reject(new Error('Worker deployment failed.'));

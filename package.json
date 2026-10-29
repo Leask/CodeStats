@@ -61,9 +61,6 @@
             "WAKATIME_TOKEN": {
                 "description": "Optional WakaTime OAuth read token for owner-verified fallback. Leave empty for public statistics; heartbeat ingestion API keys do not grant statistics access."
             },
-            "CODEX_SYNC_TOKEN": {
-                "description": "Normally leave empty. After deploying, run npm run sync:codex locally to generate/install this secret and send numeric usage aggregates. A Codex login token does not belong here."
-            },
             "OPENROUTER_API_KEY": {
                 "description": "Optional OpenRouter Management key for account usage. An ordinary inference key is insufficient. Leave empty if unused."
             },

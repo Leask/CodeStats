@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { parseEnv } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deployCi } from '../scripts/deploy-ci.mjs';
 
@@ -29,6 +30,35 @@ function child(inspect, status = 0) {
 }
 
 describe('CI runtime environment forwarding', () => {
+    it('does not offer the program-managed sync key as a deployment input', async () => {
+        for (const name of ['.dev.vars.example', '.env.example']) {
+            const sample = parseEnv(await readFile(new URL('../' + name,
+                import.meta.url), 'utf8'));
+            expect(sample).not.toHaveProperty('CODEX_SYNC_TOKEN');
+        }
+        const metadata = JSON.parse(await readFile(new URL('../package.json',
+            import.meta.url), 'utf8'));
+        expect(metadata.cloudflare.bindings).not.toHaveProperty('CODEX_SYNC_TOKEN');
+    });
+
+    it.each(['env', 'json'])('ignores legacy sync keys in Build and %s files to preserve the managed Worker key', async format => {
+        const path = await directory();
+        const filename = join(await directory(), 'legacy.' + format);
+        const legacy = { CODEX_SYNC_TOKEN: 'stale-file-fixture' };
+        await writeFile(filename, format === 'json' ? JSON.stringify(legacy)
+            : 'CODEX_SYNC_TOKEN=' + legacy.CODEX_SYNC_TOKEN);
+        const start = child(async (_binary, args, options) => {
+            expect(args).not.toContain('--secrets-file');
+            expect(args).toContain('--keep-vars');
+            expect(options.env).not.toHaveProperty('CODEX_SYNC_TOKEN');
+        });
+        await deployCi({ temporaryDirectory: path, spawn: start,
+            environment: { CODEX_SYNC_TOKEN: 'stale-build-fixture' },
+            arguments: ['--secrets-file', filename] });
+        expect(start).toHaveBeenCalledTimes(1);
+        expect(await readdir(path)).toEqual([]);
+    });
+
     it('uploads only allowlisted service secrets in a temporary private file', async () => {
         const path = await directory();
         const github = 'isolated-github-ci-fixture';
