@@ -1,4 +1,4 @@
-# CodeStats
+# 📊 CodeStats
 
 Your **GitHub, WakaTime, Codex and OpenRouter** activity in one profile card.
 Run it on **Node.js** or **Cloudflare Workers**, then paste one Markdown snippet
