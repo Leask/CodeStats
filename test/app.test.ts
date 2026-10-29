@@ -54,6 +54,29 @@ function languageSnapshot(): StatsSnapshot {
 }
 
 describe('public repository-count rows', () => {
+    it.each([undefined, '', ' '])(
+        'defaults omitted or blank server ranges to all_time (%j)', async defaultRange => {
+            const ranges: string[] = [];
+            const handler = createHandler(async (_env, range) => {
+                ranges.push(range);
+                return languageSnapshot();
+            });
+            const env = { ...settings, DEFAULT_RANGE: defaultRange };
+            for (const path of ['/', '/card.svg', '/api/stats']) {
+                const response = await handler.fetch(new Request(
+                    'https://test.invalid' + path,
+                ), env);
+                expect(response.status).toBe(200);
+            }
+            expect(ranges).toEqual(['all_time', 'all_time', 'all_time']);
+            const invalid = await handler.fetch(new Request(
+                'https://test.invalid/api/stats?range=not-a-range',
+            ), env);
+            expect(invalid.status).toBe(400);
+            expect(ranges).toHaveLength(3);
+        },
+    );
+
     it('publishes deduplicated groups without exposing or mutating membership data', async () => {
         const snapshot = languageSnapshot();
         const before = structuredClone(snapshot);

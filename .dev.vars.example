@@ -12,7 +12,8 @@
 # Scopes: email plus read_stats.languages (or read_stats).
 # WAKATIME_TOKEN=replace_with_a_read_stats_oauth_token
 
-# Codex: set CODEX_USAGE_ENABLED=true in Wrangler vars to display imported data.
+# Codex auto-enables when CODEX_SYNC_TOKEN or CODEX_USERNAME is configured.
+# Optional CODEX_USAGE_ENABLED=false in Wrangler vars overrides auto-enabling.
 # Optional CODEX_USERNAME in vars is a bare public ID, never a profile URL.
 # Use the same separate >=32-character random secret in the local sync environment.
 # CODEX_SYNC_TOKEN=replace_with_an_independent_sync_secret

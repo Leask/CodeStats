@@ -1,5 +1,6 @@
 import type { Settings } from './types';
 import { UpstreamError } from './errors';
+import { codexUsageEnabled } from './profile';
 
 export const CODEX_IMPORT_PATH = '/api/usage/codex';
 export const MAX_USAGE_BODY = 16_384;
@@ -16,7 +17,7 @@ export async function importCodexRequest(
         });
     }
     const secret = settings.CODEX_SYNC_TOKEN?.trim();
-    if (settings.CODEX_USAGE_ENABLED !== 'true' || !secret) {
+    if (!codexUsageEnabled(settings) || !secret) {
         return new Response('Codex import is not configured.', { status: 404, headers });
     }
     if (secret.length < 32) {

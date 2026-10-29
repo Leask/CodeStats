@@ -43,12 +43,16 @@ describe('configured and public profile selection', () => {
         })).toEqual({ mode: 'configured', accounts: {}, sources: [] });
     });
 
-    it('enables configured public Codex ID independently of legacy local login', () => {
-        expect(resolveProfile(url(), { ...settings, CODEX_USAGE_ENABLED: 'false' })
+    it('infers Codex from its ID or sync secret and honors an explicit opt-out', () => {
+        const automatic = { ...settings, CODEX_USAGE_ENABLED: undefined };
+        expect(resolveProfile(url(), { ...automatic, CODEX_SYNC_TOKEN: undefined })
             .sources).toContain('codex');
-        expect(resolveProfile(url(), { ...settings,
-            CODEX_USAGE_ENABLED: 'false', CODEX_USERNAME: undefined })
+        expect(resolveProfile(url(), { ...automatic, CODEX_USERNAME: undefined })
+            .sources).toContain('codex');
+        expect(resolveProfile(url(), { ...automatic, CODEX_USAGE_ENABLED: 'false' })
             .sources).not.toContain('codex');
+        expect(resolveProfile(url(), { ...automatic, CODEX_USERNAME: undefined,
+            CODEX_SYNC_TOKEN: undefined }).sources).not.toContain('codex');
     });
 
     it('enters isolated public mode even for an account matching the owner', () => {

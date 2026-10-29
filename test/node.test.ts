@@ -133,7 +133,7 @@ describe('Node runtime and persistent snapshots', () => {
         const token = 'isolated-sync-fixture-not-a-secret'.repeat(2);
         let reads = 0;
         const node = createNodeService({ ...settings,
-            CODEX_USAGE_ENABLED: 'true', CODEX_SYNC_TOKEN: token,
+            CODEX_SYNC_TOKEN: token,
         }, {
             dataDirectory: directory(), fetcher: upstream().fetcher,
             codexReader: async () => {

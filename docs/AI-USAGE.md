@@ -13,9 +13,15 @@ differ, and the same activity may appear in more than one system.
 
 | Source | Enable it with | Reporting period |
 | --- | --- | --- |
-| Codex on Node | `CODEX_USAGE_ENABLED=true` and the service user's existing Codex CLI login | Official account/workspace lifetime summary |
-| Codex on a Worker | `CODEX_USAGE_ENABLED=true`, a dedicated `CODEX_SYNC_TOKEN`, and a local aggregate sync | Lifetime summary as of the last imported observation |
+| Codex on Node | A configured `CODEX_USERNAME` or `CODEX_SYNC_TOKEN`, plus the service user's existing Codex CLI login | Official account/workspace lifetime summary |
+| Codex on a Worker | A dedicated `CODEX_SYNC_TOKEN` and a local aggregate sync | Lifetime summary as of the last imported observation |
 | OpenRouter | `OPENROUTER_API_KEY` containing a Management key | Last 367 completed UTC days, or a shorter configured interval |
+
+Codex auto-enables from its configured ID or sync secret. No extra flag is
+required. `CODEX_USAGE_ENABLED=false` explicitly disables it, including when
+those settings are present. `true` remains available for Node users who want
+local CLI collection without an ID or sync secret. Remove an old sample's
+explicit `false` line when switching to automatic enabling.
 
 Usage credentials apply only to the configured profile. `sources=codex` or
 `sources=openrouter` can select that configured subset without an account
@@ -41,8 +47,9 @@ For a profile link, set `CODEX_USERNAME=your-id` or use `?codex=your-id`.
 Provide a bare ID; CodeStats constructs `https://chatgpt.com/u/your-id` on the
 fixed official host. A dynamic public ID shows that canonical link with unavailable
 usage. It never reads the deployment owner's CLI, aggregate imports or stored
-usage, even when the public ID matches the configured owner. Setting an ID alone
-does not enable account-usage access. The authenticated summary represents the
+usage, even when the public ID matches the configured owner. A server-configured
+ID enables the integration but does not authorize account-usage access.
+The authenticated summary represents the
 active local account/workspace, not a lookup of arbitrary IDs.
 
 No ChatGPT cookie, access token, refresh token or conversation content is copied
@@ -72,26 +79,28 @@ Install the Codex CLI and sign in normally as the operating-system account that
 will run CodeStats. Set this in the ignored Node environment file:
 
 ```dotenv
-CODEX_USAGE_ENABLED=true
-# Optional public identity/link, not a credential or account switch:
+# Enables the integration and adds a public profile link:
 CODEX_USERNAME=your-id
+# Optional override for collection without a configured ID/sync secret:
+# CODEX_USAGE_ENABLED=true
 ```
 
 Restart the service, then open `/build`. When Codex's cache is due, CodeStats
 creates a short-lived `codex app-server --stdio` child to read the account
 summary and closes only that child. It does not stop existing Codex sessions.
-A hosted Node process needs access to that user's working local login; setting
-the flag alone does not establish access.
+A hosted Node process needs access to that user's working local login; an ID,
+sync secret or explicit enable flag alone does not establish that access.
 
 ### Cloudflare Worker
 
 A Worker cannot run the local Codex CLI. Use an aggregate-only bridge:
 
-1. Set `CODEX_USAGE_ENABLED=true` in the Worker's runtime variables.
+1. Optionally set `CODEX_USERNAME` to your bare public ID in runtime Variables.
 2. Generate a separate random secret of at least 32 characters, for example with
    `openssl rand -hex 32`.
 3. Save it as `CODEX_SYNC_TOKEN` both in the Worker's **Secrets** and in the
-   sync machine's ignored `.env`. Do not reuse a provider credential.
+   sync machine's ignored `.env`. This automatically enables Codex imports;
+   no separate enable flag is needed. Do not reuse a provider credential.
 4. On a machine already signed in to Codex, run:
 
 ```sh
@@ -184,8 +193,9 @@ Official references: [analytics query](https://openrouter.ai/docs/api/api-refere
 For OpenRouter HTTP403, check that the configured credential is a **Management
 key**, not an inference key. For missing Worker credentials, verify runtime
 Secrets rather than build-only secrets. For Codex on Node, verify the service
-user's local Codex login; for a Worker, verify the enable flag, bridge secret and
-last successful sync. Never paste credentials into the card URL or public logs.
+user's local Codex login; for a Worker, verify the bridge secret and last
+successful sync, and check that an explicit `CODEX_USAGE_ENABLED=false` is not
+disabling it. Never paste credentials into the card URL or public logs.
 
 Default freshness is six hours and failed refreshes use a fifteen-minute retry
 cooldown. Upstream changes and GitHub's image cache may delay visible updates.

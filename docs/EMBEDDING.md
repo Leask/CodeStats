@@ -185,7 +185,7 @@ Example:
 
 | Parameter | Supported values | Default |
 | --- | --- | --- |
-| `range` | `all_time`, `last_7_days`, `last_30_days` | Server's `DEFAULT_RANGE` |
+| `range` | `all_time`, `last_7_days`, `last_30_days` | Server's `DEFAULT_RANGE`, or `all_time` when omitted |
 | `theme` | `dark`, `light`, `transparent` | `transparent` |
 | `header` | `true`, `false`; show or hide the avatar, name and bio | `true` |
 | `view` | `overview`, `github`, `wakatime`, `codex`, `openrouter`; legacy `languages`, `activity` | `overview` |

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Default omitted WakaTime ranges to `all_time` on both runtimes. Auto-enable
+  configured Codex integration from its ID or sync secret, while retaining
+  `CODEX_USAGE_ENABLED=false` as an explicit override.
 - Support public GitHub/WakaTime usernames and Codex IDs in the builder and
   URLs, isolated from configured credentials, imports and private caches.
   Add four source views and source-subset selection while retaining overview

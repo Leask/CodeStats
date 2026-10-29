@@ -10,7 +10,7 @@ const services: PrimarySource[] = ['github', 'wakatime', 'codex', 'openrouter'];
 const labels = ['GitHub', 'WakaTime', 'Codex', 'OpenRouter'];
 const settings: Settings = {
     GITHUB_USERNAME: 'owner', WAKATIME_USERNAME: 'owner-time',
-    CODEX_USERNAME: 'owner-codex', CODEX_USAGE_ENABLED: 'true',
+    CODEX_USERNAME: 'owner-codex',
     GITHUB_TOKEN: 'github-private-credential-fixture',
     WAKATIME_TOKEN: 'waka-private-credential-fixture',
     OPENROUTER_API_KEY: 'router-private-credential-fixture',

@@ -33,11 +33,14 @@ and reporting periods; their counts are not combined into a cross-provider total
   reads `account/usage/read` through the existing supported CLI login. It accepts
   only the five account-summary fields and observation time, not transcripts or
   credentials. Node reads locally when enabled; the Worker receives validated
-  aggregate imports through `POST /api/usage/codex`. That import requires
-  `CODEX_USAGE_ENABLED=true` and a separate sync secret of at least 32 characters.
+  aggregate imports through `POST /api/usage/codex`. A configured Codex ID or
+  sync secret auto-enables the integration; `CODEX_USAGE_ENABLED=false`
+  explicitly disables it. Imports require a separate sync secret of at least
+  32 characters, regardless of how the integration was enabled.
   Imports are serialized and older/equal observations are rejected. Visiting
   the card never gives an old imported observation a new success timestamp.
-  `CODEX_USERNAME` is a bare public ID used only for its fixed-host profile link.
+  `CODEX_USERNAME` is a bare public ID that enables the configured integration
+  and supplies its fixed-host profile link; it never switches the local account.
   Public ID requests have unavailable usage and cannot read owner CLI/imports.
 - **OpenRouter:** `ai-usage.ts` issues one unfiltered Management-key analytics
   query for daily `tokens_total` and `request_count`. It sums every returned day,

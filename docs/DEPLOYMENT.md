@@ -95,19 +95,23 @@ silently substitute another period when a range is unavailable or recalculating.
 
 ### Codex
 
-Set `CODEX_USAGE_ENABLED=true` only when you want to display Codex usage.
-Optionally set `CODEX_USERNAME` to a bare ID such as `your-id`; CodeStats builds
+Codex auto-enables when `CODEX_USERNAME` or `CODEX_SYNC_TOKEN` is configured.
+Set `CODEX_USERNAME` to a bare ID such as `your-id`; CodeStats builds
 `https://chatgpt.com/u/your-id` itself. A public ID/link is not an authorization
 grant. Anonymous profile pages require sign-in for usage, so `?codex=ID` displays
 its canonical link with unavailable metrics and never uses owner CLI/imports.
+An explicit `CODEX_USAGE_ENABLED=false` disables the integration even with an
+ID or sync secret. For local CLI collection without either setting, opt in with
+`CODEX_USAGE_ENABLED=true`. Otherwise, omit this override. When upgrading an old
+`.env` sample that sets the flag to `false`, remove that line to use auto-enabling.
 
 - **Node:** run under a user with the Codex CLI installed on `PATH` and an
   existing supported Codex-service login. CodeStats starts a bounded child
   `codex app-server --stdio` and reads `account/usage/read`; it does not copy
   login credentials or inspect chat history. API-key-only or third-party-provider
   logins may not provide this account summary.
-- **Worker:** the edge runtime cannot start your desktop CLI. Set the enable
-  flag there and configure `CODEX_SYNC_TOKEN` as a runtime Secret. Generate a
+- **Worker:** the edge runtime cannot start your desktop CLI. Configure
+  `CODEX_SYNC_TOKEN` as a runtime Secret; this also enables the integration. Generate a
   separate random secret of at least 32 characters, put the same secret in the
   local sync environment, and run the bridge from the signed-in computer:
 
@@ -196,9 +200,11 @@ workload; local validation is not a production-capacity test.
 ### Configure and preview
 
 In `wrangler.jsonc`, replace the Worker `name`, `vars.GITHUB_USERNAME` and
-`vars.WAKATIME_USERNAME`. Add `"CODEX_USAGE_ENABLED": "true"` inside `vars` if
-using Codex imports. Set nonsecret options such as `OPENROUTER_USAGE_SINCE` in `vars` only
-when you want to override the defaults.
+`vars.WAKATIME_USERNAME`. For Codex imports, configure the `CODEX_SYNC_TOKEN`
+Secret; the optional `CODEX_USERNAME` belongs in `vars`. No separate enable
+flag is required. `DEFAULT_RANGE` may be omitted and defaults to `all_time`.
+Set nonsecret options such as `OPENROUTER_USAGE_SINCE` in `vars` only when you
+want to override the defaults.
 
 Keep the `SNAPSHOTS` binding, class name and existing `v1/new_sqlite_classes`
 migration. Do not remove or retag a deployed migration. Keep `keep_names: false`
@@ -249,8 +255,9 @@ These commands update the deployed Worker, not just local preview. Never put
 credential values in command arguments. Use the public Workers URL printed at
 deploy time or your custom domain in the README generator. Keep the Worker
 identity, profile usernames, binding and migration history stable to retain the
-cache. Enabling Codex imports also requires the nonsecret enable flag in `vars`.
-After deployment, run the local Codex sync against the public origin.
+cache. A configured sync secret automatically enables Codex imports unless
+`CODEX_USAGE_ENABLED=false` overrides it. After deployment, run the local Codex
+sync against the public origin.
 
 ### Workers Builds dashboard
 
@@ -323,10 +330,10 @@ unless a row says otherwise.
 | `GITHUB_INCLUDE_OWN_CONTRIBUTIONS` | `true` | Include owned repos in contributed-repository counts |
 | `WAKATIME_USERNAME` | Empty unless configured | Public username/UUID; token-only resolves its owner |
 | `WAKATIME_TOKEN` | Optional | Same-owner OAuth fallback; scopes `email` plus `read_stats.languages`/`read_stats` |
-| `DEFAULT_RANGE` | `all_time` | Initial WakaTime range only |
-| `CODEX_USAGE_ENABLED` | Disabled unless `true` | Local CLI reader on Node; aggregate-import display on Worker |
-| `CODEX_USERNAME` | Optional bare ID | Canonical public profile link; no anonymous usage access |
-| `CODEX_SYNC_TOKEN` | Optional independent secret, at least 32 characters | Authorize `/api/usage/codex` imports; not a Codex login token |
+| `DEFAULT_RANGE` | Optional; `all_time` | Initial WakaTime range only; may be omitted on either runtime |
+| `CODEX_USAGE_ENABLED` | Optional override | Omit to auto-enable with a Codex ID/sync secret; `false` disables it, `true` enables local CLI collection without an ID/secret |
+| `CODEX_USERNAME` | Optional bare ID | Enables the configured integration and provides its canonical profile link; does not grant account access |
+| `CODEX_SYNC_TOKEN` | Optional independent secret, at least 32 characters | Auto-enable and authorize `/api/usage/codex` imports; not a Codex login token |
 | `OPENROUTER_API_KEY` | Optional Management key | Enable account analytics |
 | `OPENROUTER_USAGE_SINCE` | Last 367 completed UTC days | Optional shorter `YYYY-MM-DD` start |
 | `FRESH_SECONDS` | `21600` | Six-hour freshness interval; minimum 60 seconds |

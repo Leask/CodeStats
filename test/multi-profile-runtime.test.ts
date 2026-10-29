@@ -22,7 +22,7 @@ const settings: Settings = {
     GITHUB_USERNAME: 'owner', WAKATIME_USERNAME: 'owner',
     DEFAULT_RANGE: 'all_time', FRESH_SECONDS: '60', RETRY_SECONDS: '60',
     GITHUB_TOKEN: 'github-owner-fixture', WAKATIME_TOKEN: 'waka-owner-fixture',
-    OPENROUTER_API_KEY: 'router-owner-fixture', CODEX_USAGE_ENABLED: 'true',
+    OPENROUTER_API_KEY: 'router-owner-fixture',
     CODEX_USERNAME: 'owner-codex',
 };
 

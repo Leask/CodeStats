@@ -4,12 +4,13 @@ import {
 import { RANGES } from './types';
 import type { CardOptions, Range, Settings, StatsSnapshot } from './types';
 import { CODEX_IMPORT_PATH, importCodexRequest } from './usage-import';
-import { resolveProfile } from './profile';
+import { codexUsageEnabled, resolveProfile } from './profile';
 import type { ProfileSelection } from './profile';
 import type { ReadOptions } from './cache';
 
 function rangeFrom(url: URL, env: Settings): Range {
-    const value = url.searchParams.get('range') ?? env.DEFAULT_RANGE;
+    const value = url.searchParams.get('range')
+        ?? (env.DEFAULT_RANGE?.trim() || 'all_time');
     if (!RANGES.includes(value as Range)) {
         throw new Error('Invalid range; use all_time, last_7_days or last_30_days.');
     }
@@ -87,7 +88,7 @@ export function createHandler<Config extends Settings>(
                     configuration: {
                         githubTokenConfigured: Boolean(env.GITHUB_TOKEN?.trim()),
                         wakatimeTokenConfigured: Boolean(env.WAKATIME_TOKEN?.trim()),
-                        codexUsageEnabled: env.CODEX_USAGE_ENABLED === 'true',
+                        codexUsageEnabled: codexUsageEnabled(env),
                         openrouterTokenConfigured: Boolean(env.OPENROUTER_API_KEY?.trim()),
                     },
                 }, { headers: { 'Cache-Control': 'no-store' } });

@@ -15,6 +15,14 @@ export interface ProfileSelection {
     sources: PrimarySource[];
 }
 
+/** Configured Codex identity/imports enable usage unless explicitly disabled. */
+export function codexUsageEnabled(env: Settings): boolean {
+    const override = env.CODEX_USAGE_ENABLED?.trim().toLowerCase();
+    if (override === 'false') return false;
+    return override === 'true'
+        || Boolean(env.CODEX_USERNAME?.trim() || env.CODEX_SYNC_TOKEN?.trim());
+}
+
 const ACCOUNT_PARAMETERS = ['github', 'wakatime', 'codex'] as const;
 const PROFILE_PARAMETERS = new Set<string>([...ACCOUNT_PARAMETERS, 'sources']);
 const SECRET_PART = /(?:^|_)(?:token|secret|password|passwd|authorization|credential|credentials|key)(?:_|$)/;
@@ -94,7 +102,7 @@ export function resolveProfile(url: URL, env: Settings): ProfileSelection {
             : service === 'wakatime'
             ? !!accounts.wakatime || !!env.WAKATIME_TOKEN?.trim()
             : service === 'codex'
-            ? !!accounts.codex || env.CODEX_USAGE_ENABLED === 'true'
+            ? codexUsageEnabled(env)
             : !!env.OPENROUTER_API_KEY?.trim());
     return {
         mode, accounts,

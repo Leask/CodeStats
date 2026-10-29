@@ -240,7 +240,7 @@ describe('Codex aggregate validation and import authorization', () => {
             .toThrow('observation time');
     });
 
-    it('requires an explicitly enabled service and the separate sync secret', async () => {
+    it('requires the separate sync secret and honors an explicit opt-out', async () => {
         const save = vi.fn();
         expect((await importCodexRequest(request(payload(), 'wrong'), settings, save)).status)
             .toBe(401);
@@ -253,6 +253,17 @@ describe('Codex aggregate validation and import authorization', () => {
         expect(save).not.toHaveBeenCalled();
         expect((await importCodexRequest(request(payload()), settings, save)).status)
             .toBe(200);
+        expect(save).toHaveBeenCalledWith(payload());
+    });
+
+    it('accepts a valid sync secret without a redundant enable flag', async () => {
+        const save = vi.fn();
+        const automatic = { ...settings, CODEX_USAGE_ENABLED: undefined };
+        expect((await importCodexRequest(request(payload(), 'wrong'), automatic, save))
+            .status).toBe(401);
+        expect(save).not.toHaveBeenCalled();
+        expect((await importCodexRequest(request(payload()), automatic, save))
+            .status).toBe(200);
         expect(save).toHaveBeenCalledWith(payload());
     });
 

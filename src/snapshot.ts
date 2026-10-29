@@ -4,7 +4,7 @@ import { fetchGitHub } from './github';
 import { repositoryOptions } from './github-options';
 import { fetchGitHubActivity } from './github-activity';
 import { fetchPublicGitHub, fetchPublicGitHubActivity } from './github-public';
-import { publicSettings } from './profile';
+import { codexUsageEnabled, publicSettings } from './profile';
 import type { ProfileSelection } from './profile';
 import { fetchWakaTime } from './wakatime';
 import { MISSING_GITHUB_TOKEN } from './errors';
@@ -82,7 +82,7 @@ export function createProfileCache(
                 ? { openrouter: () => fetchOpenRouterUsage(env, fetcher) } : {}),
             ...(env.ANTHROPIC_ADMIN_KEY?.trim()
                 ? { anthropic: () => fetchAnthropicUsage(env, fetcher) } : {}),
-            ...(env.CODEX_USAGE_ENABLED === 'true' && usageLoaders.codex
+            ...(codexUsageEnabled(env) && usageLoaders.codex
                 ? { codex: usageLoaders.codex } : {}),
         },
     }, {
@@ -95,7 +95,7 @@ export function createProfileCache(
                 + (env.GITHUB_INCLUDE_OWN_CONTRIBUTIONS ?? 'true')
             : 'github:activity:public-rest:v1',
         githubActivityCollectionVersion: 3,
-        importedCodexUsage: env.CODEX_USAGE_ENABLED === 'true'
+        importedCodexUsage: codexUsageEnabled(env)
             && !usageLoaders.codex,
         aiUsageKeys: {
             // Keep the legacy key so older snapshots remain available while

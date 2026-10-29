@@ -129,7 +129,7 @@ export interface CardOptions {
 export interface Settings {
     GITHUB_USERNAME: string;
     WAKATIME_USERNAME: string;
-    DEFAULT_RANGE: string;
+    DEFAULT_RANGE?: string;
     FRESH_SECONDS: string;
     RETRY_SECONDS: string;
     GITHUB_TOKEN?: string;

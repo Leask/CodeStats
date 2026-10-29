@@ -58,7 +58,7 @@ not in the builder, image URLs or README.
 | --- | --- | --- |
 | GitHub | Username alone for public aggregates; add the account's `GITHUB_TOKEN` for full coverage | [Permissions](docs/DEPLOYMENT.md#credentials) |
 | WakaTime | Published username/range; optional owner OAuth token for fallback or token-only setup | [Permissions](docs/DEPLOYMENT.md#credentials) |
-| Codex | Optional `CODEX_USERNAME` bare ID for a profile link; enable local login/Worker aggregate sync for usage | [Codex setup](docs/AI-USAGE.md#codex) |
+| Codex | `CODEX_USERNAME` or sync secret auto-enables it; local login/Worker aggregate sync supplies usage | [Codex setup](docs/AI-USAGE.md#codex) |
 | OpenRouter | `OPENROUTER_API_KEY` containing a **Management key** | [OpenRouter setup](docs/AI-USAGE.md#openrouter) |
 
 For full GitHub visibility, use a classic personal access token for the displayed
@@ -84,7 +84,7 @@ Codex uses the existing local login; do not copy its login tokens to the server.
 ```sh
 cp .env.example .env
 # Edit .env: set the names and optional credentials for your sources.
-# Enable Codex and add the OpenRouter Management key when wanted.
+# Add a Codex ID and the OpenRouter Management key when wanted.
 chmod 600 .env
 npm start
 ```
@@ -96,15 +96,18 @@ redeploying, and use an HTTPS reverse proxy for a public service.
 See [Node hosting](docs/DEPLOYMENT.md#nodejs).
 
 For local Codex statistics, the service account running Node must already be
-signed in to the Codex CLI. Setting the flag alone does not sign in or provide
-account access. [Codex setup](docs/AI-USAGE.md#codex).
+signed in to the Codex CLI. A configured `CODEX_USERNAME` or `CODEX_SYNC_TOKEN`
+automatically enables the integration; it does not sign in or provide account
+access. `CODEX_USAGE_ENABLED=false` explicitly disables it.
+[Codex setup](docs/AI-USAGE.md#codex).
 
 ### Cloudflare Workers
 
 Edit `wrangler.jsonc`: choose your Worker `name`, and set `vars.GITHUB_USERNAME`
 and `vars.WAKATIME_USERNAME`. Keep the existing Durable Object binding and
-migration. To include Codex, also set the runtime variable
-`CODEX_USAGE_ENABLED=true` and follow the aggregate sync setup below.
+migration. To include Codex, configure the dedicated `CODEX_SYNC_TOKEN` Secret
+and follow the aggregate sync setup below. No separate enable flag is required.
+`DEFAULT_RANGE` may be omitted; its default is `all_time` on both runtimes.
 
 ```sh
 cp .dev.vars.example .dev.vars
